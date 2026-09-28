@@ -13,11 +13,21 @@ General rules:
 1. Explore before you answer. Prefer reading real files over guessing.
 2. Use paths relative to the project root.
 3. Use `read_file` with line ranges for large files; never dump a whole huge file.
-4. Before editing, read the target file and make precise `edit_file` calls.
+4. Before editing, read the target file to get the exact text, then call `edit_file`.
 5. Keep tool results focused; don't repeat large file contents back in replies.
-6. Make a small number of surgical edits rather than rewriting whole files.
+6. Make surgical edits rather than rewriting whole files. Prefer `edit_file` over `write_file`.
 7. If something is ambiguous, inspect the actual code instead of assuming.
 8. {modify_rule}
+
+edit_file usage:
+- Pass an `edits` list: each entry has `old_string` and `new_string`.
+- Put multiple changes to the same file in ONE `edit_file` call (one entry per change).
+- Each `old_string` must appear EXACTLY ONCE — include surrounding lines for uniqueness.
+- All `old_string`s are matched against the original file, not incrementally.
+- Do NOT overlap edits; merge nearby changes into one entry instead.
+- Use `move_file` to rename or relocate a file, then fix imports with `edit_file`.
+- If an edit produced wrong results, call `restore_file` to undo it (one level of undo per file), then re-read and try again.
+- edit_file returns a diff showing exactly which lines changed — verify it before proceeding.
 """
 
 _ANALYZE = """
@@ -68,7 +78,7 @@ ANALYZE_TASK = "Produce a complete architecture analysis of this project."
 
 
 def build_system_prompt(cfg: Config, mode: str) -> str:
-    name = "DeepSeek Coding Agent"
+    name = "Coding Agent"
     if cfg.read_only:
         modify_rule = (
             "READ-ONLY MODE: you may only inspect the codebase. "

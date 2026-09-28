@@ -8,13 +8,20 @@ from .filesystem import (
     file_search,
     grep_search,
     list_directory,
+    move_file,
     read_file,
+    restore_file,
     write_file,
 )
 from .finish import finish
+from .image_meta import read_image_meta
 from .shell import run_shell
+from .srdp import srdp_list, srdp_read
+from .srdp_map import srdp_map_ext_content
 
-_MODIFYING = (write_file, edit_file, delete_file, run_shell)
+_MODIFYING = (write_file, edit_file, delete_file, run_shell, move_file)
+# restore_file is intentionally NOT in _MODIFYING — it repairs damage,
+# so it must remain available even when read_only=False check is done per-tool.
 
 ALL_TOOLS = [
     list_directory,
@@ -24,7 +31,13 @@ ALL_TOOLS = [
     write_file,
     edit_file,
     delete_file,
+    move_file,
+    restore_file,
     run_shell,
+    srdp_list,
+    srdp_read,
+    srdp_map_ext_content,
+    read_image_meta,
     finish,
 ]
 

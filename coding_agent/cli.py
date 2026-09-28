@@ -68,7 +68,7 @@ def _print_message(m) -> None:
 
 def _invoke_config(cfg: Config) -> dict:
     return {
-        "recursion_limit": cfg.max_iterations + 10,
+        "recursion_limit": cfg.recursion_limit,  # max_iterations*2+20; each hop costs 2 nodes
         "configurable": {
             "project_root": str(cfg.project_root),
             "read_only": cfg.read_only,
@@ -160,6 +160,13 @@ def cmd_chat(cfg: Config) -> int:
             border_style="blue",
         )
     )
+    # Keep the full message history across turns.
+    # We pass it as initial_messages so run_agent prepends the system prompt
+    # only on the first call (it checks if msgs[0] is already a SystemMessage).
+    # On subsequent calls the history already starts with a SystemMessage so it
+    # won't be duplicated — and LangGraph's add_messages reducer appends only
+    # the NEW messages from the run, so we replace history with the full final
+    # state each time rather than ever appending twice.
     history: list = []
     while True:
         try:
@@ -172,6 +179,8 @@ def cmd_chat(cfg: Config) -> int:
         if user_input.lower() in ("exit", "quit", "/exit", "/quit"):
             break
         final = run_agent(cfg, user_input, "chat", initial_messages=history)
+        # Replace history with the full message list from the completed run.
+        # Do NOT append — run_agent already returns the complete accumulated state.
         history = final["messages"]
 
 
@@ -183,8 +192,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=f"coding-agent {__version__}")
     parser.add_argument("--root", default=None, help="project root to operate on (default: cwd)")
-    parser.add_argument("--model", default=None, help="model id (default: deepseek-chat)")
-    parser.add_argument("--api-key", default=None, help="DeepSeek API key (overrides env)")
+    parser.add_argument(
+        "--model", default=None, help="model id (default: ornith-1.5:9b via local Ollama)"
+    )
+    parser.add_argument(
+        "--api-key", default=None, help="key for the OpenAI-compatible endpoint (local Ollama: no key needed)"
+    )
     parser.add_argument("--read-only", action="store_true", help="read-only: no edits, no shell")
     parser.add_argument("--iterations", type=int, default=None, help="max agent loop steps")
 
@@ -215,7 +228,9 @@ def main(argv: list[str] | None = None) -> int:
     if not cfg.api_key:
         console.print(
             "[red]No API key configured.[/red]\n"
-            "Set DEEPSEEK_API_KEY in the environment, or create a .env file:\n"
+            "Running local Ollama needs no API key; if using a remote endpoint, set "
+            "DEEPSEEK_API_KEY (or OPENAI_API_KEY) and DEEPSEEK_BASE_URL in the "
+            "environment, or create a .env file:\n"
             "  DEEPSEEK_API_KEY=sk-...\n"
             f"Model: {cfg.model} @ {cfg.base_url}"
         )

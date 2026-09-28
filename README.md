@@ -1,6 +1,6 @@
 # coding-agent
 
-一个基于 **LangGraph + DeepSeek（OpenAI 兼容接口）** 的独立 CLI coding agent（Python）。
+一个基于 **LangGraph + Ollama（OpenAI 兼容接口）** 的独立 CLI coding agent（Python）。
 
 它能：
 - **阅读工程**：列出目录树、读取文件、grep / glob 搜索，真正读懂代码而不是靠猜。
@@ -18,10 +18,10 @@ flowchart LR
     T -->|其他| A
     A -->|无 tool_calls| F
     T --> TOOLS[工具层<br/>filesystem / shell / finish]
-    G --> LLM[llm.py<br/>ChatOpenAI → DeepSeek]
+    G --> LLM[llm.py<br/>ChatOpenAI → Ollama]
 ```
 
-- **LLM**：`langchain-openai` 的 `ChatOpenAI` 指向 `https://api.deepseek.com/v1`，模型默认 `deepseek-chat`。
+- **LLM**：`langchain-openai` 的 `ChatOpenAI` 默认指向本地 Ollama `http://localhost:11434/v1`，模型默认 `ornith-1.5:9b`（无需 API key）。改用远程端点（如 DeepSeek）时设置 `DEEPSEEK_BASE_URL`/`DEEPSEEK_MODEL`。
 - **编排**：`StateGraph` 循环 `agent → tools → agent`，模型调用 `finish` 工具或直接输出答案时结束。
 - **上下文管理**：每次调用模型前按字符预算 `trim_messages`，防止长代码库把上下文撑爆。
 - **安全**：路径做了 project-root 越界校验；`--read-only` 会移除所有修改类工具。
@@ -76,8 +76,8 @@ coding-agent --root . --read-only analyze
 | 参数 | 说明 |
 |------|------|
 | `--root PATH` | 目标工程根目录（默认当前目录） |
-| `--model ID` | 模型 id（默认 `deepseek-chat`；V4 Flash 请按你的端点配置） |
-| `--api-key KEY` | 覆盖环境变量中的 API key |
+| `--model ID` | 模型 id（默认 `ornith-1.5:9b`，指向本地 Ollama；远程端点请按你的端点配置） |
+| `--api-key KEY` | 覆盖环境变量中的 API key（本地 Ollama 留空即可） |
 | `--read-only` | 只读：禁用 `write_file` / `edit_file` / `delete_file` / `run_shell` |
 | `--iterations N` | agent 循环最大步数（默认 40） |
 
@@ -106,7 +106,7 @@ coding-agent/
     ├── config.py       # 配置（环境变量 + CLI 覆盖）
     ├── state.py        # LangGraph 状态类型
     ├── prompts.py      # 各模式的系统提示词
-    ├── llm.py          # ChatOpenAI → DeepSeek 工厂
+    ├── llm.py          # ChatOpenAI → Ollama 工厂
     ├── graph.py        # StateGraph 编排（agent/tools/finalize）
     └── tools/
         ├── filesystem.py  # 目录/读取/搜索/写入/编辑/删除
@@ -117,7 +117,7 @@ coding-agent/
 
 ## 自定义
 
-- **换模型 / 端点**：改 `.env` 里的 `DEEPSEEK_BASE_URL`、`DEEPSEEK_MODEL`。
+- **换模型 / 端点**：本地用 Ollama (`http://localhost:11434/v1`，`ornith-1.5:9b`)；改远程端点时设 `.env` 里的 `DEEPSEEK_BASE_URL`、`DEEPSEEK_MODEL`、`DEEPSEEK_API_KEY`（或 `OPENAI_API_KEY`）。
 - **调整上下文预算**：`Config.context_budget_chars`（默认 180k 字符，近似估计）。
 - **加新工具**：在 `tools/` 下写一个 `@tool` 函数，并加入 `tools/__init__.py` 的 `ALL_TOOLS`。
 

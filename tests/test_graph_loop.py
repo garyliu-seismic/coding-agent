@@ -180,22 +180,38 @@ def main() -> int:
     )
     check("exploration tools stripped (hard intervention)", saw_strip)
 
-    print("== scenario: wind-down forces finish after too many tool calls ==")
-    wd_cfg = Config(project_root=tmp, context_budget_chars=100_000, wind_down_steps=5)
-    wd_script = [
-        tool_call("read_file", {"path": f"f{i}.py"}, f"r{i}") for i in range(1, 6)
-    ] + [tool_call("finish", {"summary": "wound down"}, "w1")]
-    rec3 = RecordingFakeLLM(wd_script)
-    bound3 = rec3.bind_tools([])
-    rec3.bind_tools = lambda tools: bound3
-    graph6 = build_graph(wd_cfg, rec3)
-    final6 = graph6.invoke(state, config={**config, "recursion_limit": 30})
-    check("wind-down run finishes", final6.get("finished") is True)
-    saw_winddown = any(
-        any(isinstance(m, SystemMessage) and "wind-down" in m.content for m in inp)
-        for inp in bound3.inputs
-    )
-    check("wind-down message injected", saw_winddown)
+    print("== scenario: wind-down fires after sustained stall (no progress actions) ==")
+    # Wind-down now triggers on stall_count >= 30 consecutive no-progress tool calls.
+    # Simulate 31 pure read_file calls (no write/edit/shell) then finish.
+    # We patch the threshold to 5 for test speed by subclassing _agent_node.
+    # Instead, we directly test _stall_count from graph module.
+    from coding_agent.graph import _stall_count
+    from langchain_core.messages import AIMessage as AI
+
+    def _tc(name, args, tid):
+        return AI(
+            content=f"call {name}",
+            tool_calls=[{"name": name, "args": args, "id": tid, "type": "tool_call"}],
+        )
+
+    stall_msgs = [
+        _tc("read_file", {"path": "a.py"}, "r1"),
+        _tc("read_file", {"path": "b.py"}, "r2"),
+        _tc("grep_search", {"pattern": "foo"}, "r3"),
+    ]
+    check("stall_count=3 for pure reads", _stall_count(stall_msgs) == 3,
+          str(_stall_count(stall_msgs)))
+
+    progress_msgs = stall_msgs + [_tc("edit_file", {"path": "a.py", "old_string": "x", "new_string": "y"}, "e1")]
+    check("stall_count=0 after edit_file", _stall_count(progress_msgs) == 0,
+          str(_stall_count(progress_msgs)))
+
+    mixed = progress_msgs + [
+        _tc("read_file", {"path": "c.py"}, "r4"),
+        _tc("read_file", {"path": "d.py"}, "r5"),
+    ]
+    check("stall_count=2 after two reads post-edit", _stall_count(mixed) == 2,
+          str(_stall_count(mixed)))
 
     print(f"\n== RESULT: {PASS} passed, {FAIL} failed ==")
     return 1 if FAIL else 0

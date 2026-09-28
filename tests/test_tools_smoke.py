@@ -17,6 +17,7 @@ from coding_agent.tools import (
     finish,
     grep_search,
     list_directory,
+    move_file,
     read_file,
     run_shell,
     write_file,
@@ -84,23 +85,46 @@ def main() -> int:
     out = file_search.invoke({"glob_pattern": "**/*.py", "path": "."}, config=c)
     check("glob finds utils.py", "src/utils.py" in out, out)
 
-    print("== write_file / edit_file / delete_file ==")
+    print("== write_file / edit_file / delete_file / move_file ==")
     out = write_file.invoke({"path": "src/new.py", "content": "x = 1\n"}, config=c)
     check("write creates file", "created" in out and (root / "src" / "new.py").exists(), out)
+
+    # Single edit via new edits-list API
     out = edit_file.invoke(
-        {"path": "src/new.py", "old_string": "x = 1", "new_string": "x = 42"}, config=c
+        {"path": "src/new.py", "edits": [{"old_string": "x = 1", "new_string": "x = 42"}]}, config=c
     )
     check("edit applies", "OK" in out and (root / "src" / "new.py").read_text() == "x = 42\n", out)
+
+    # old_string not found
     out = edit_file.invoke(
-        {"path": "src/new.py", "old_string": "x = 1", "new_string": "x = 99"}, config=c
+        {"path": "src/new.py", "edits": [{"old_string": "x = 1", "new_string": "x = 99"}]}, config=c
     )
     check("edit missing old_string fails", "not found" in out, out)
+
+    # Duplicate (ambiguous) old_string
     out = edit_file.invoke(
-        {"path": "src/utils.py", "old_string": "def ", "new_string": "def "}, config=c
+        {"path": "src/utils.py", "edits": [{"old_string": "def ", "new_string": "def "}]}, config=c
     )
     check("edit duplicate rejected", "times" in out, out)
-    out = delete_file.invoke({"path": "src/new.py"}, config=c)
-    check("delete removes file", "deleted" in out and not (root / "src" / "new.py").exists(), out)
+
+    # Multi-edit: two replacements in one call
+    write_file.invoke({"path": "src/multi.py", "content": "a = 1\nb = 2\nc = 3\n"}, config=c)
+    out = edit_file.invoke(
+        {"path": "src/multi.py", "edits": [
+            {"old_string": "a = 1", "new_string": "a = 10"},
+            {"old_string": "c = 3", "new_string": "c = 30"},
+        ]}, config=c
+    )
+    content_multi = (root / "src" / "multi.py").read_text()
+    check("multi-edit both applied", "a = 10" in content_multi and "c = 30" in content_multi, content_multi)
+    check("multi-edit untouched line preserved", "b = 2" in content_multi, content_multi)
+    delete_file.invoke({"path": "src/multi.py"}, config=c)
+
+    # move_file
+    out = move_file.invoke({"src": "src/new.py", "dst": "src/renamed.py"}, config=c)
+    check("move_file renames", "→" in out and (root / "src" / "renamed.py").exists() and not (root / "src" / "new.py").exists(), out)
+    out = delete_file.invoke({"path": "src/renamed.py"}, config=c)
+    check("delete removes file", "deleted" in out and not (root / "src" / "renamed.py").exists(), out)
 
     print("== run_shell (PowerShell) ==")
     out = run_shell.invoke({"command": "echo hello-from-shell"}, config=c)
