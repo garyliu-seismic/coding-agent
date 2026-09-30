@@ -27,15 +27,37 @@ import textwrap
 from typing import Sequence
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, ToolMessage
+import json
 
 
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
 
-def _chars(messages: Sequence[AnyMessage]) -> int:
+def count_chars(messages: Sequence[AnyMessage], image_token_cost: int = 2048) -> int:
+    """Count characters in messages but treat image ToolMessages as fixed cost.
+
+    Args:
+        messages: sequence of AnyMessage
+        image_token_cost: fixed token-equivalent cost to charge per image
+    """
     total = 0
     for m in messages:
+        # ToolMessage that encodes an image as a JSON block/dict: count as fixed
+        if isinstance(m, ToolMessage):
+            content = m.content
+            if isinstance(content, dict):
+                if content.get("type") == "image_url":
+                    total += image_token_cost
+                    continue
+            elif isinstance(content, str):
+                try:
+                    j = json.loads(content)
+                    if isinstance(j, dict) and j.get("type") == "image_url":
+                        total += image_token_cost
+                        continue
+                except Exception:
+                    pass
         c = m.content
         total += len(c) if isinstance(c, str) else 0
     return total
@@ -144,7 +166,23 @@ def _serialise(messages: list[AnyMessage]) -> str:
                 args_str = ", ".join(f"{k}={repr(v)[:120]}" for k, v in (tc.get("args") or {}).items())
                 parts.append(f"[Tool call]: {tc.get('name')}({args_str})")
         elif isinstance(m, ToolMessage):
-            parts.append(f"[Tool result ({getattr(m, 'name', '?')})]: {_truncate(content, 600)}")
+            # If the tool result is an image_url JSON block, show a compact description
+            descr = None
+            if isinstance(content, str):
+                try:
+                    j = json.loads(content)
+                    if isinstance(j, dict) and j.get("type") == "image_url":
+                        alt = j.get("alt") or getattr(m, "name", "image")
+                        w = j.get("width")
+                        h = j.get("height")
+                        size_str = f" {w}x{h}px" if w and h else ""
+                        descr = f"[Tool result (image)]: {alt}{size_str}"
+                except Exception:
+                    descr = None
+            if descr:
+                parts.append(descr)
+            else:
+                parts.append(f"[Tool result ({getattr(m, 'name', '?')})]: {_truncate(content, 600)}")
     return "\n".join(parts)
 
 
@@ -178,6 +216,8 @@ def compact(
     llm,
     total_budget_chars: int,
     keep_recent_chars: int,
+    image_token_cost: int = 2048,
+    keep_recent_images: int = 5,
 ) -> list[AnyMessage]:
     """Return a compacted message list safe for LLM API submission.
 
@@ -193,7 +233,8 @@ def compact(
         total_budget_chars: Trigger threshold; no compaction if below this.
         keep_recent_chars: How many recent chars to preserve un-summarised.
     """
-    if _chars(messages) <= total_budget_chars:
+    # Use count_chars which treats image ToolMessages specially
+    if count_chars(messages, image_token_cost=image_token_cost) <= total_budget_chars:
         return messages
 
     # Separate leading system messages from the rest
@@ -217,6 +258,63 @@ def compact(
     if not to_summarise:
         # Nothing safe to summarise — return as-is to avoid API errors
         return messages
+
+    # Replace old images in the kept tail with placeholders, preserving only
+    # the most recent `keep_recent_images` images to avoid re-sending large
+    # base64 blobs to the LLM repeatedly.
+    image_positions: list[int] = []
+    for i, m in enumerate(to_keep):
+        if isinstance(m, ToolMessage) and isinstance(m.content, str):
+            try:
+                j = json.loads(m.content)
+                if isinstance(j, dict) and j.get("type") == "image_url":
+                    image_positions.append(i)
+            except Exception:
+                continue
+    # Keep only the last N image positions
+    keep_last = set(image_positions[-keep_recent_images:])
+    # When replacing old images with placeholders, also persist a small index
+    # mapping placeholder -> metadata so they can be retrieved later if needed.
+    index_path = Path(__file__).parent / ".." / "compacted_images.json"
+    try:
+        index_path = index_path.resolve()
+    except Exception:
+        index_path = Path("compacted_images.json")
+
+    try:
+        import json as _json
+        if index_path.is_file():
+            stored = _json.loads(index_path.read_text(encoding="utf-8"))
+        else:
+            stored = {}
+    except Exception:
+        stored = {}
+
+    for idx in image_positions:
+        if idx not in keep_last:
+            m = to_keep[idx]
+            # extract metadata
+            meta = {"alt": None, "width": None, "height": None}
+            try:
+                j = json.loads(m.content) if isinstance(m.content, str) else (m.content or {})
+                if isinstance(j, dict):
+                    meta["alt"] = j.get("alt")
+                    meta["width"] = j.get("width")
+                    meta["height"] = j.get("height")
+            except Exception:
+                pass
+            alt = meta.get("alt") or getattr(m, "name", "image")
+            placeholder_text = f"[image omitted: {alt}] (image removed to reduce token usage)"
+            placeholder = SystemMessage(placeholder_text)
+            to_keep[idx] = placeholder
+            # store metadata under a short key (index in original messages + cut offset)
+            key = f"omitted_{len(stored)+1}"
+            stored[key] = {"placeholder": placeholder_text, "meta": meta}
+
+    try:
+        index_path.write_text(_json.dumps(stored, indent=2), encoding="utf-8")
+    except Exception:
+        pass
 
     transcript = _serialise(to_summarise)
     prompt = _SUMMARY_PROMPT.format(transcript=transcript)

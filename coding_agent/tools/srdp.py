@@ -294,3 +294,112 @@ def srdp_read(
         return f"Error: {srdp_path} is not a valid zip file."
     except Exception as exc:
         return f"Error: {exc}"
+
+
+# ---------------------------------------------------------------------------
+# srdp_grep
+# ---------------------------------------------------------------------------
+
+_GREP_TEXT_EXTENSIONS = {".xml", ".json", ".txt"}
+_GREP_ZIP_EXTENSIONS = {".zip", ".pptx", ".docx", ".xlsx"}
+
+
+def _grep_in_bytes(
+    data: bytes,
+    keyword: str,
+    case_sensitive: bool,
+    path_prefix: str,
+    results: list[str],
+    cap: int,
+) -> None:
+    """Search `data` (text file bytes) for `keyword`; append hits to `results`."""
+    text = data.decode("utf-8", errors="ignore")
+    needle = keyword if case_sensitive else keyword.lower()
+    for line in text.splitlines():
+        if len(results) >= cap:
+            return
+        haystack = line if case_sensitive else line.lower()
+        if needle in haystack:
+            trimmed = line.strip()
+            if len(trimmed) > 200:
+                trimmed = trimmed[:200] + "..."
+            results.append(f"[{path_prefix}] {trimmed}")
+
+
+def _grep_zip(
+    zf: zipfile.ZipFile,
+    keyword: str,
+    case_sensitive: bool,
+    prefix: str,
+    results: list[str],
+    cap: int,
+) -> None:
+    """Recurse into `zf`, searching text entries and nested zips."""
+    for info in zf.infolist():
+        if len(results) >= cap:
+            return
+        name = info.filename
+        ext = Path(name).suffix.lower()
+        full_path = f"{prefix}{name}"
+
+        if ext in _GREP_TEXT_EXTENSIONS:
+            try:
+                raw = zf.read(name)
+                _grep_in_bytes(raw, keyword, case_sensitive, full_path, results, cap)
+            except Exception:
+                pass
+        elif ext in _GREP_ZIP_EXTENSIONS or ext == ".bin":
+            try:
+                raw = zf.read(name)
+                with zipfile.ZipFile(io.BytesIO(raw)) as inner:
+                    _grep_zip(inner, keyword, case_sensitive, f"{full_path}!/", results, cap)
+            except Exception:
+                pass
+
+
+@tool
+def srdp_grep(
+    zip_path: str,
+    keyword: str,
+    case_sensitive: bool = False,
+    config: RunnableConfig = None,
+) -> str:
+    """Search all text entries in a SRDP zip for a keyword.
+
+    Returns matching entry names and the line containing the match (up to 200
+    chars of context per line).  Handles nested zips transparently (.bin,
+    .pptx, .docx, .xlsx entries are opened and searched recursively).
+    Caps output at 50 matches.
+
+    Args:
+        zip_path:       Path to the SRDP / zip file, relative to project root.
+        keyword:        The string to search for.
+        case_sensitive: If True, match is case-sensitive (default: False).
+    """
+    root = _root(config)
+    p, display = _resolve_srdp(root, zip_path)
+    if not _within(root, p):
+        return f"Error: path escapes project root: {zip_path}"
+    if not p.is_file():
+        return f"Error: file not found: {zip_path}"
+
+    results: list[str] = []
+    cap = 50
+
+    try:
+        with zipfile.ZipFile(str(p)) as zf:
+            _grep_zip(zf, keyword, case_sensitive, "", results, cap)
+    except zipfile.BadZipFile:
+        return f"Error: {zip_path} is not a valid zip file."
+    except Exception as exc:
+        return f"Error: {exc}"
+
+    if not results:
+        return f"No matches found for '{keyword}' in {display}."
+
+    header = (
+        f"Found {len(results)} match(es) for '{keyword}' in {display}"
+        + (" (capped at 50)" if len(results) >= cap else "")
+        + ":\n"
+    )
+    return header + "\n".join(results)

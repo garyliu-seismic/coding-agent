@@ -28,12 +28,13 @@ Key stability mechanisms for 100+ turn tasks
 from __future__ import annotations
 
 import json
+import time
 
 from langchain_core.messages import AIMessage, AnyMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
-from .compaction import compact
+from .compaction import compact, count_chars
 from .config import Config
 from .llm import build_llm
 from .state import AgentState
@@ -98,18 +99,13 @@ def _loop_warning(
     if not sigs:
         return None
 
-    # 1) identical consecutive repeats
+    # 1) identical repeats within the recent window (catches A,B,A,B too)
     last = sigs[-1]
-    count = 0
-    for s in reversed(sigs):
-        if s == last:
-            count += 1
-        else:
-            break
+    count = sum(1 for s in sigs[-20:] if s == last)
     if count >= repeat_threshold:
         return (
             f"[loop guard] You have called `{last[0]}` with identical arguments "
-            f"{last[1]} {count} times in a row. This is not making progress. "
+            f"{last[1]} {count} times in the last 20 calls. This is not making progress. "
             "Do NOT repeat that call. Read a file you haven't read yet, or if you "
             "already have enough information, call `finish`."
         )
@@ -131,19 +127,25 @@ def _loop_warning(
 
 def _agent_node(cfg: Config, llm_plain, model_full, model_no_explore, model_only_finish):
     """Return the agent node function closed over the models and config."""
+    run_start = {"t": None}
 
     def agent(state: AgentState):
         messages = list(state["messages"])
+        if run_start["t"] is None or not any(isinstance(m, AIMessage) for m in messages):
+            run_start["t"] = time.monotonic()
+        elapsed = time.monotonic() - run_start["t"]
 
         # --- Compaction (replaces trim_messages) ---
         # Uses a plain LLM (no tools bound) for the summary call so the
         # summary prompt is not accidentally interpreted as a tool invocation.
-        if _char_counter(messages) > cfg.context_budget_chars:
+        if count_chars(messages, image_token_cost=cfg.vision_image_token_cost) > cfg.context_budget_chars:
             messages = compact(
                 messages,
                 llm=llm_plain,
                 total_budget_chars=cfg.context_budget_chars,
                 keep_recent_chars=cfg.keep_recent_chars,
+                image_token_cost=cfg.vision_image_token_cost,
+                keep_recent_images=cfg.vision_keep_recent,
             )
 
         # --- Wind-down: detect STALL, not total call count ---
@@ -153,9 +155,18 @@ def _agent_node(cfg: Config, llm_plain, model_full, model_no_explore, model_only
         stall = _stall_count(messages)
         warning = _loop_warning(messages)
 
-        wind_down_stall_threshold = 30  # consecutive no-progress tool calls → wind-down
+        wind_down_stall_threshold = 12  # consecutive no-progress tool calls → wind-down
 
-        if warning:
+        if elapsed > cfg.run_timeout_sec:
+            model = model_only_finish
+            messages = [
+                *messages,
+                SystemMessage(
+                    f"[time budget] {int(elapsed)}s elapsed (limit {cfg.run_timeout_sec}s). "
+                    "Stop now and call `finish` with your findings so far, and state what is unverified. Only `finish` is available."
+                ),
+            ]
+        elif warning:
             model = model_no_explore
             messages = [
                 *messages,

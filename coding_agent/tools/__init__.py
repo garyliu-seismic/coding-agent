@@ -15,8 +15,10 @@ from .filesystem import (
 )
 from .finish import finish
 from .image_meta import read_image_meta
+from .image_view import view_image
+from .describe_image import describe_image
 from .shell import run_shell
-from .srdp import srdp_list, srdp_read
+from .srdp import srdp_grep, srdp_list, srdp_read
 from .srdp_map import srdp_map_ext_content
 
 _MODIFYING = (write_file, edit_file, delete_file, run_shell, move_file)
@@ -36,17 +38,30 @@ ALL_TOOLS = [
     run_shell,
     srdp_list,
     srdp_read,
+    srdp_grep,
     srdp_map_ext_content,
     read_image_meta,
+    # view_image and describe_image are registered conditionally at build_tools time
+    # based on cfg.vision setting; they are imported above so they can be referenced.
     finish,
 ]
 
 
 def build_tools(cfg: Config) -> list:
+    tools = list(ALL_TOOLS)
+    # Conditionally register view_image based on vision config
+    if cfg.vision != "off":
+        # insert view_image just before finish
+        try:
+            idx = tools.index(finish)
+            tools.insert(idx, view_image)
+        except ValueError:
+            tools.append(view_image)
+
     if cfg.read_only:
         # StructuredTool defines __eq__ (so it's unhashable); compare by identity.
-        return [t for t in ALL_TOOLS if not any(t is m for m in _MODIFYING)]
-    return list(ALL_TOOLS)
+        return [t for t in tools if not any(t is m for m in _MODIFYING)]
+    return tools
 
 
 __all__ = ["build_tools", "ALL_TOOLS"]

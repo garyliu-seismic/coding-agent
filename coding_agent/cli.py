@@ -225,7 +225,9 @@ def main(argv: list[str] | None = None) -> int:
         max_iterations=args.iterations,
     )
 
-    if not cfg.api_key:
+    from .config import DEFAULT_BASE_URL
+    from .llm import same_host
+    if not cfg.api_key and not same_host(cfg.base_url, DEFAULT_BASE_URL):
         console.print(
             "[red]No API key configured.[/red]\n"
             "Running local Ollama needs no API key; if using a remote endpoint, set "

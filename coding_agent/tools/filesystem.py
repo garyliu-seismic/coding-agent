@@ -334,10 +334,10 @@ def read_file(
     if not p.is_file():
         return f"Error: not a file or does not exist: {path}"
     try:
-        raw = p.read_text(encoding="utf-8", errors="replace")
+        raw = p.read_bytes().decode("utf-8", errors="replace").replace("\r\n", "\n")
     except OSError as e:
         return f"Error reading {path}: {e}"
-    lines = raw.splitlines()
+    lines = raw.split("\n")
     total = len(lines)
     start = start_line or 1
     end = min(end_line or total, total)
@@ -372,13 +372,16 @@ def grep_search(
     files = [target] if target.is_file() else list(_iter_files(target))
     for p in files:
         try:
-            text = p.read_text(encoding="utf-8", errors="replace")
+            text = p.read_bytes().decode("utf-8", errors="replace").replace("\r\n", "\n")
         except OSError:
             continue
         rel = p.relative_to(root).as_posix()
-        for i, line in enumerate(text.splitlines(), 1):
+        for i, line in enumerate(text.split("\n"), 1):
             if rx.search(line):
-                matches.append(f"{rel}:{i}: {line.strip()[:200]}")
+                s = line.strip()
+                if len(s) > 800:
+                    s = s[:800] + f"...[line truncated, {len(s)} chars total; use read_file {rel} {i}-{i}]"
+                matches.append(f"{rel}:{i}: {s}")
                 if len(matches) >= max_results:
                     return "\n".join(matches) + f"\n...[stopped at {max_results} matches]"
     return "\n".join(matches) if matches else "(no matches)"

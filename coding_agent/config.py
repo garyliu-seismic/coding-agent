@@ -19,6 +19,14 @@ IGNORED_DIRS = {
 }
 
 
+def _parse_temperature(raw: str | None) -> float | None:
+    if raw is None or raw.strip() == "":
+        return 0.0
+    if raw.strip().lower() in ("none", "default", "omit"):
+        return None
+    return float(raw)
+
+
 @dataclass
 class Config:
     """Runtime configuration for the coding agent."""
@@ -26,14 +34,25 @@ class Config:
     api_key: str = ""
     base_url: str = DEFAULT_BASE_URL
     model: str = DEFAULT_MODEL
-    temperature: float = 0.0
+    temperature: float | None = 0.0   # None = omit (some GPT-5 deployments reject non-default values)
     max_iterations: int = 200          # max agent loop steps (each tool call ≈ 1 step;
                                        # 100-turn tasks need 150+ headroom)
     wind_down_steps: int = 180         # tool calls before forced wind-down
                                        # (set close to max_iterations so it only
                                        # fires at the very end, not mid-task)
+    run_timeout_sec: int = 600        # wall-clock budget; after this only `finish` is offered
+    request_timeout_sec: int = 120    # per model call
+    max_retries: int = 6              # SDK retries 429/5xx with backoff, honoring Retry-After
     context_budget_chars: int = 120_000  # trigger compaction when history exceeds this
     keep_recent_chars: int = 40_000      # chars of recent context to keep un-summarised
+
+    # Vision / image handling (default: off)
+    vision: str = "off"  # one of 'off'|'auto'|'on'
+    vision_max_side: int = 1568
+    vision_max_image_bytes: int = 256 * 1024
+    vision_keep_recent: int = 5
+    vision_image_token_cost: int = 2048
+
     read_only: bool = False           # when True: no edits, no shell
     allow_shell: bool = True
     shell_timeout: int = 120          # seconds
@@ -54,8 +73,14 @@ class Config:
             ),
             base_url=os.getenv("DEEPSEEK_BASE_URL", DEFAULT_BASE_URL),
             model=os.getenv("DEEPSEEK_MODEL", DEFAULT_MODEL),
+            temperature=_parse_temperature(os.getenv("CODING_AGENT_TEMPERATURE")),
             read_only=os.getenv("CODING_AGENT_READ_ONLY", "0").lower() in ("1", "true", "yes"),
             project_root=Path(os.getenv("CODING_AGENT_ROOT", Path.cwd())),
+            vision=os.getenv("CODING_AGENT_VISION", "off"),
+            vision_max_side=int(os.getenv("CODING_AGENT_VISION_MAX_SIDE", str(1568))),
+            vision_max_image_bytes=int(os.getenv("CODING_AGENT_VISION_MAX_IMAGE_BYTES", str(256 * 1024))),
+            vision_keep_recent=int(os.getenv("CODING_AGENT_VISION_KEEP_RECENT", str(5))),
+            vision_image_token_cost=int(os.getenv("CODING_AGENT_VISION_IMAGE_TOKEN_COST", str(2048))),
         )
         for key, value in overrides.items():
             if value is None or not hasattr(cfg, key):
