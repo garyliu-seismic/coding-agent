@@ -197,10 +197,10 @@ def _agent_node(cfg: Config, llm_plain, model_full, model_no_explore, model_only
             messages = [
                 *messages,
                 SystemMessage(
-                    "When an image viewing tool fails, the tool must respond exactly with '没能看到图片' and not
+                    """When an image viewing tool fails, the tool must respond exactly with '没能看到图片' and not
 use other tools' error messages as the image description. After using the view_image tool, expect a separate
 HumanMessage containing the image content block (type=image_url) to be injected into the conversation so you can
-refer to the pixels."
+refer to the pixels."""
                 ),
             ]
 
