@@ -12,9 +12,10 @@ def test_view_image_small(tmp_path: Path):
     img = Image.new("RGB", (100, 50), (255, 0, 0))
     img.save(p)
 
-    res = view_image(str(p), config={"configurable": {"project_root": str(tmp_path)}})
-    assert "image_url" in res
-    assert "data:image/png;base64," in res
+    res = view_image.func(str(p), config={"configurable": {"project_root": str(tmp_path)}})
+    assert isinstance(res, dict)
+    assert res.get("type") == "image_url"
+    assert res.get("url", "").startswith("data:image/png;base64,")
 
 
 def test_view_image_downscale(tmp_path: Path):
@@ -23,9 +24,10 @@ def test_view_image_downscale(tmp_path: Path):
     img = Image.new("RGB", (4000, 2000), (0, 255, 0))
     img.save(p)
 
-    res = view_image(str(p), max_side=800, config={"configurable": {"project_root": str(tmp_path)}})
-    assert "image_url" in res
-    assert "data:image/png;base64," in res
+    res = view_image.func(str(p), max_side=800, config={"configurable": {"project_root": str(tmp_path)}})
+    assert isinstance(res, dict)
+    assert res.get("type") == "image_url"
+    assert res.get("url", "").startswith("data:image/png;base64,")
 
 
 def test_view_image_zip(tmp_path: Path):
@@ -37,8 +39,9 @@ def test_view_image_zip(tmp_path: Path):
     with zipfile.ZipFile(z, "w") as zf:
         zf.write(inner, "img.png")
 
-    res = view_image(str(z.name), zip_entry="img.png", config={"configurable": {"project_root": str(tmp_path)}})
-    assert "image_url" in res
+    res = view_image.func(str(z.name), zip_entry="img.png", config={"configurable": {"project_root": str(tmp_path)}})
+    assert isinstance(res, dict)
+    assert res.get("type") == "image_url"
 
 
 def test_extract_metadata_compat():
