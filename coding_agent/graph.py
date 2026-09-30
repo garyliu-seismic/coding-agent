@@ -197,12 +197,17 @@ def _agent_node(cfg: Config, llm_plain, model_full, model_no_explore, model_only
             messages = [
                 *messages,
                 SystemMessage(
-                    """If you need to inspect an image, ONLY call the view_image tool and then STOP and wait for the
-injected image content. Do NOT call any other tool (including describe_image) in the same response where
-you call view_image. After view_image runs, a separate HumanMessage with the image content block
-(type=image_url) will be inserted; examine that HumanMessage and answer using it. If view_image fails,
-the tool must return exactly the phrase '没能看到图片' (do not forward other tools' error text as an image
-description)."""
+                    """STRICT INSTRUCTIONS FOR VISION TASKS:
+1) When you call view_image, STOP. Do NOT call any other tools in the same response.
+2) After view_image completes, an IMAGE_CONTENT_JSON block will be injected as text. You MUST read that
+   injected block and answer based ONLY on it.
+3) If the question asks to quote visible text, you must return EXACTLY the text as it appears in the image,
+   including punctuation, capitalization and surrounding whitespace. Your final answer must be a single
+   double-quoted string containing only the quoted text (for example: "Error: File not found"). Do NOT add
+   any commentary, explanation, or extra characters.
+4) If view_image failed, the tool will return the exact phrase '没能看到图片'. In that case, respond exactly
+   with that phrase (no quotes) and nothing else.
+Failure to follow these rules will be treated as incorrect. Use only the injected IMAGE_CONTENT_JSON text."""
                 ),
             ]
 
