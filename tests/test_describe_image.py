@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 import requests
 
+import coding_agent.tools.describe_image as describe_mod
 from coding_agent.tools.describe_image import describe_image
 
 
@@ -30,7 +31,7 @@ def test_describe_image_no_url(tmp_path: Path):
     # When model URL not configured we get an error string
     p = tmp_path / "a.png"
     p.write_bytes(b"\x89PNG\r\n")
-    rv = describe_image(str(p), config={"configurable": {"project_root": str(tmp_path)}})
+    rv = describe_image.func(str(p), config={"configurable": {"project_root": str(tmp_path)}})
     assert rv.startswith("Error: no CODING_AGENT_VISION_MODEL_URL")
 
 
@@ -46,23 +47,23 @@ def test_describe_image_parsing(monkeypatch, tmp_path: Path):
         # Return a JSON with description
         return DummyResp(json.dumps({"description": "a cat"}), headers={"Content-Type": "application/json"})
 
-    monkeypatch.setattr("coding_agent.tools.describe_image._call_backend", fake_call)
+    monkeypatch.setattr(describe_mod, "_call_backend", fake_call)
 
-    rv = describe_image(str(p), config={"configurable": {"project_root": str(tmp_path)}}, max_words=5)
+    rv = describe_image.func(str(p), config={"configurable": {"project_root": str(tmp_path)}}, max_words=5)
     assert "cat" in rv.lower()
 
     # predictions shape
     def fake_call2(base, files, data, headers, timeout, adapter=None):
         return DummyResp(json.dumps({"predictions": [{"caption": "a dog"}]}), headers={"Content-Type": "application/json"})
 
-    monkeypatch.setattr("coding_agent.tools.describe_image._call_backend", fake_call2)
-    rv = describe_image(str(p), config={"configurable": {"project_root": str(tmp_path)}}, max_words=5)
+    monkeypatch.setattr(describe_mod, "_call_backend", fake_call2)
+    rv = describe_image.func(str(p), config={"configurable": {"project_root": str(tmp_path)}}, max_words=5)
     assert "dog" in rv.lower()
 
     # openai-like
     def fake_call3(base, files, data, headers, timeout, adapter=None):
         return DummyResp(json.dumps({"choices": [{"message": {"content": "a fox"}}]}), headers={"Content-Type": "application/json"})
 
-    monkeypatch.setattr("coding_agent.tools.describe_image._call_backend", fake_call3)
-    rv = describe_image(str(p), config={"configurable": {"project_root": str(tmp_path)}}, max_words=5)
+    monkeypatch.setattr(describe_mod, "_call_backend", fake_call3)
+    rv = describe_image.func(str(p), config={"configurable": {"project_root": str(tmp_path)}}, max_words=5)
     assert "fox" in rv.lower()
