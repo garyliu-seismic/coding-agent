@@ -255,8 +255,14 @@ def _route_after_tools(state: AgentState) -> str:
                 # Replace tool message with a short confirmation
                 short = f"已加载图片 {w}x{h}" if (w and h) else "已加载图片"
                 msgs[last_idx].content = short
-                # Inject HumanMessage with the image content block so LLM can 'see' it
-                msgs.append(HumanMessage(content=content))
+                # Inject HumanMessage(s) with a marker and a JSON string of the image content
+                # This is more compatible with adapters that only accept text content.
+                try:
+                    json_block = json.dumps(content, ensure_ascii=False)
+                except Exception:
+                    json_block = str(content)
+                msgs.append(HumanMessage(content="IMAGE_CONTENT_JSON:"))
+                msgs.append(HumanMessage(content=json_block))
             else:
                 # If the tool returned an error-like string, normalise to the explicit
                 # failure wording required by the prompt guidance.
