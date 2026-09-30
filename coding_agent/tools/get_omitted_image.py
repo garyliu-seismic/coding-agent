@@ -11,6 +11,10 @@ import json
 
 @tool
 def get_omitted_image(key: str) -> str:
+    """Retrieve metadata for an omitted image by key from the compaction index.
+
+    Returns a JSON string with metadata or an Error: message when not found.
+    """
     idx = Path(__file__).parent.parent / "compacted_images.json"
     if not idx.is_file():
         return f"Error: no omitted images index found"

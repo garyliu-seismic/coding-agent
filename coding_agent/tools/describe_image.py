@@ -33,6 +33,11 @@ def describe_image(
     max_words: int = 200,
     config: RunnableConfig = None,
 ) -> str:
+    """Call an external vision model to produce a textual description of the image.
+
+    Returns a short plain-text caption/description, or an error string starting
+    with 'Error:' on failure.
+    """
     root = _root(config)
     # Load image bytes
     if zip_entry:
