@@ -16,7 +16,8 @@ from .filesystem import (
 from .finish import finish
 from .image_meta import read_image_meta
 from .image_view import view_image
-from .describe_image import describe_image
+# NOTE: describe_image temporarily disabled to force model to rely on injected image block
+# from .describe_image import describe_image
 from .get_omitted_image import get_omitted_image
 from .shell import run_shell
 from .srdp import srdp_grep, srdp_list, srdp_read
@@ -52,14 +53,13 @@ def build_tools(cfg: Config) -> list:
     tools = list(ALL_TOOLS)
     # Conditionally register view_image based on vision config
     if cfg.vision != "off":
-        # insert view_image and describe_image just before finish
+        # insert view_image (describe_image intentionally not registered for this test)
         try:
             idx = tools.index(finish)
             tools.insert(idx, view_image)
-            tools.insert(idx+1, describe_image)
-            tools.insert(idx+2, get_omitted_image)
+            tools.insert(idx+1, get_omitted_image)
         except ValueError:
-            tools.extend([view_image, describe_image, get_omitted_image])
+            tools.extend([view_image, get_omitted_image])
 
     if cfg.read_only:
         # StructuredTool defines __eq__ (so it's unhashable); compare by identity.
