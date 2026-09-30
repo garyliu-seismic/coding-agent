@@ -135,5 +135,13 @@ def view_image(
     mime = "image/png" if fmt.lower() == "png" else "image/jpeg"
     data_url = f"data:{mime};base64,{b64}"
 
-    # Return a simple JSON-like string for the tool result. LangChain will wrap it as ToolMessage content.
-    return '{"type": "image_url", "url": "' + data_url + '", "alt": "' + name + '", "width": ' + str(w) + ', "height": ' + str(h) + '}'
+    # Return a structured dict. LangChain/tooling may wrap this into a ToolMessage
+    # whose content could be a dict (preferred) or a JSON string. We return a dict
+    # to allow downstream components to inspect fields without parsing.
+    return {
+        "type": "image_url",
+        "url": data_url,
+        "alt": name,
+        "width": w,
+        "height": h,
+    }

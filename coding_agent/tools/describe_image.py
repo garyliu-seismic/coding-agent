@@ -64,11 +64,23 @@ def describe_image(
         payload = {"hint": hint, "max_words": max_words}
         resp = requests.post(base, data=payload, files=files, headers=headers, timeout=30)
         resp.raise_for_status()
-        j = resp.json()
-        # Expect a JSON with {"description": "..."}
-        if isinstance(j, dict) and "description" in j:
-            return j["description"]
-        # Fallback to plain text
-        return resp.text
+        # Try to accept multiple response shapes
+        ct = resp.headers.get("Content-Type", "")
+        if "application/json" in ct:
+            j = resp.json()
+            # Common shapes: {description:...} or {predictions: [{caption: ...}]}
+            if isinstance(j, dict):
+                if "description" in j:
+                    return j["description"]
+                if "predictions" in j and isinstance(j["predictions"], list):
+                    first = j["predictions"][0]
+                    if isinstance(first, dict) and "caption" in first:
+                        return first["caption"]
+                    if isinstance(first, str):
+                        return first
+            return resp.text
+        else:
+            # not JSON — return plain text
+            return resp.text
     except Exception as exc:
         return f"Error: vision model request failed: {exc}"
