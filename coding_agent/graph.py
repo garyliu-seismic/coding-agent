@@ -30,7 +30,7 @@ from __future__ import annotations
 import json
 import time
 
-from langchain_core.messages import AIMessage, AnyMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, AnyMessage, SystemMessage, ToolMessage, HumanMessage
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
@@ -190,6 +190,19 @@ def _agent_node(cfg: Config, llm_plain, model_full, model_no_explore, model_only
             ]
         else:
             model = model_full
+
+        # If vision is enabled, instruct the model about tool failure semantics so it
+        # does not treat other tools' error strings as image understanding.
+        if cfg.vision != "off":
+            messages = [
+                *messages,
+                SystemMessage(
+                    "When an image viewing tool fails, the tool must respond exactly with '没能看到图片' and not
+use other tools' error messages as the image description. After using the view_image tool, expect a separate
+HumanMessage containing the image content block (type=image_url) to be injected into the conversation so you can
+refer to the pixels."
+                ),
+            ]
 
         return {"messages": [model.invoke(messages)]}
 
