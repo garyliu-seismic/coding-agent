@@ -217,10 +217,55 @@ def _route_after_agent(state: AgentState) -> str:
 
 
 def _route_after_tools(state: AgentState) -> str:
-    for m in reversed(state["messages"]):
+    """After tools run, perform vision-specific post-processing then route.
+
+    If the last ToolMessage was from view_image and contains a structured
+    image content block (type=image_url), we replace the tool's textual
+    content with a short confirmation like "已加载图片 WxH" and inject a
+    HumanMessage whose content is the image content block so the LLM receives
+    pixels as part of the conversation. If the tool returned an error string
+    (starting with 'Error:'), we normalise it to the exact phrase
+    '没能看到图片' so the model does not mistake other tools' error text for
+    an actual image description.
+    """
+    msgs = state.get("messages") or []
+    # Find the last ToolMessage and its index
+    last_idx = None
+    last_tool = None
+    for i in range(len(msgs) - 1, -1, -1):
+        m = msgs[i]
         if isinstance(m, ToolMessage):
-            return "finalize" if m.name == "finish" else "agent"
-    return "agent"
+            last_idx = i
+            last_tool = m
+            break
+
+    if last_tool is None:
+        return "agent"
+
+    # Vision-specific handling for view_image
+    try:
+        if last_tool.name == "view_image":
+            content = last_tool.content
+            # If tool returned a structured image block, inject a HumanMessage with it
+            if isinstance(content, dict) and content.get("type") == "image_url":
+                w = content.get("width")
+                h = content.get("height")
+                # Replace tool message with a short confirmation
+                short = f"已加载图片 {w}x{h}" if (w and h) else "已加载图片"
+                msgs[last_idx].content = short
+                # Inject HumanMessage with the image content block so LLM can 'see' it
+                msgs.append(HumanMessage(content=content))
+            else:
+                # If the tool returned an error-like string, normalise to the explicit
+                # failure wording required by the prompt guidance.
+                if isinstance(content, str) and (content.startswith("Error:") or "error" in content.lower()):
+                    msgs[last_idx].content = "没能看到图片"
+    except Exception:
+        # Be defensive: never crash the graph routing due to vision post-processing
+        pass
+
+    # Finally decide where to route next based on the tool name
+    return "finalize" if last_tool.name == "finish" else "agent"
 
 
 def _finalize(state: AgentState) -> dict:
