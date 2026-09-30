@@ -50,6 +50,7 @@ def test_describe_image_parsing(monkeypatch, tmp_path: Path):
         return DummyResp(json.dumps({"description": "a cat"}), headers={"Content-Type": "application/json"})
 
     monkeypatch.setattr(describe_mod, "_call_backend", fake_call)
+    monkeypatch.setenv("CODING_AGENT_VISION_MODEL_URL", "http://test.local/describe")
 
     rv = describe_tool.func(str(p), config={"configurable": {"project_root": str(tmp_path)}}, max_words=5)
     assert "cat" in rv.lower()
@@ -59,6 +60,7 @@ def test_describe_image_parsing(monkeypatch, tmp_path: Path):
         return DummyResp(json.dumps({"predictions": [{"caption": "a dog"}]}), headers={"Content-Type": "application/json"})
 
     monkeypatch.setattr(describe_mod, "_call_backend", fake_call2)
+    monkeypatch.setenv("CODING_AGENT_VISION_MODEL_URL", "http://test.local/describe")
     rv = describe_tool.func(str(p), config={"configurable": {"project_root": str(tmp_path)}}, max_words=5)
     assert "dog" in rv.lower()
 
@@ -67,5 +69,6 @@ def test_describe_image_parsing(monkeypatch, tmp_path: Path):
         return DummyResp(json.dumps({"choices": [{"message": {"content": "a fox"}}]}), headers={"Content-Type": "application/json"})
 
     monkeypatch.setattr(describe_mod, "_call_backend", fake_call3)
+    monkeypatch.setenv("CODING_AGENT_VISION_MODEL_URL", "http://test.local/describe")
     rv = describe_tool.func(str(p), config={"configurable": {"project_root": str(tmp_path)}}, max_words=5)
     assert "fox" in rv.lower()
