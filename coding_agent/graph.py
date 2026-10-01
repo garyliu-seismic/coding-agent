@@ -27,6 +27,8 @@ Key stability mechanisms for 100+ turn tasks
 """
 from __future__ import annotations
 
+import logging
+
 import json
 import time
 
@@ -245,7 +247,12 @@ Failure to follow these rules will be treated as incorrect. Use only the injecte
                 ),
             ]
 
-        result = {"messages": [model.invoke(llm_messages)]}
+        resp = model.invoke(llm_messages)
+        um = getattr(resp, "usage_metadata", None)
+        if um:
+            logging.getLogger("coding_agent.usage").info(
+                "llm usage in=%s out=%s total=%s", um.get("input_tokens"), um.get("output_tokens"), um.get("total_tokens"))
+        result = {"messages": [resp]}
         if new_summary != summary or new_count != compacted_count:
             result["summary"] = new_summary
             result["compacted_count"] = new_count
@@ -338,11 +345,11 @@ def build_graph(cfg: Config, llm=None):
     llm = llm or build_llm(cfg)
     tools = build_tools(cfg)
 
-    model_full = llm.bind_tools(tools)
+    model_full = llm.bind_tools(tools, parallel_tool_calls=False)
     non_explore = [t for t in tools if t.name not in _EXPLORATION_TOOLS]
-    model_no_explore = llm.bind_tools(non_explore)
+    model_no_explore = llm.bind_tools(non_explore, parallel_tool_calls=False)
     finish_tools = [t for t in tools if t.name == "finish"]
-    model_only_finish = llm.bind_tools(finish_tools)
+    model_only_finish = llm.bind_tools(finish_tools, parallel_tool_calls=False)
 
     builder = StateGraph(AgentState)
     builder.add_node(

@@ -25,6 +25,10 @@ def build_llm(cfg: Config) -> ChatOpenAI:
     kwargs = {}
     if cfg.temperature is not None:
         kwargs["temperature"] = cfg.temperature
+    if cfg.max_completion_tokens is not None:
+        kwargs["max_completion_tokens"] = cfg.max_completion_tokens
+    if cfg.reasoning_effort:
+        kwargs["reasoning_effort"] = cfg.reasoning_effort
     return ChatOpenAI(
         model=cfg.model,
         api_key=api_key,

@@ -34,6 +34,10 @@ def _parse_temperature(raw: str | None) -> float | None:
     return float(raw)
 
 
+def _parse_opt_int(v):
+    return int(v) if v and v.strip() else None
+
+
 @dataclass
 class Config:
     """Runtime configuration for the coding agent."""
@@ -49,6 +53,8 @@ class Config:
                                        # fires at the very end, not mid-task)
     run_timeout_sec: int = 600        # wall-clock budget; after this only `finish` is offered
     request_timeout_sec: int = 120    # per model call
+    max_completion_tokens: int | None = None  # cap per-call output (incl. reasoning); None = provider default
+    reasoning_effort: str | None = None       # gpt-5 family: minimal|low|medium|high; None = provider default
     max_retries: int = 6              # SDK retries 429/5xx with backoff, honoring Retry-After
     context_budget_chars: int = 120_000  # trigger compaction when history exceeds this
     keep_recent_chars: int = 40_000      # chars of recent context to keep un-summarised
@@ -88,6 +94,8 @@ class Config:
             base_url=os.getenv("DEEPSEEK_BASE_URL", DEFAULT_BASE_URL),
             model=os.getenv("DEEPSEEK_MODEL", DEFAULT_MODEL),
             temperature=_parse_temperature(os.getenv("CODING_AGENT_TEMPERATURE")),
+            max_completion_tokens=_parse_opt_int(os.getenv("CODING_AGENT_MAX_COMPLETION_TOKENS")),
+            reasoning_effort=(os.getenv("CODING_AGENT_REASONING_EFFORT") or None),
             read_only=os.getenv("CODING_AGENT_READ_ONLY", "0").lower() in ("1", "true", "yes"),
             allow_dangerous_commands=os.getenv("CODING_AGENT_ALLOW_DANGEROUS", "0").lower() in ("1", "true", "yes"),
             project_root=Path(os.getenv("CODING_AGENT_ROOT", Path.cwd())),
