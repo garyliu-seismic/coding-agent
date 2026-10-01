@@ -68,6 +68,7 @@ class Config:
 
     read_only: bool = False           # when True: no edits, no shell
     allow_shell: bool = True
+    allow_dangerous_commands: bool = False  # allow disaster-level shell commands (rm -rf /, format, shutdown, sudo, ...)
     shell_timeout: int = 120          # seconds
     tool_output_limit: int = 20_000   # cap chars returned by run_shell
     file_read_limit: int = 60_000     # cap chars returned by read_file
@@ -88,6 +89,7 @@ class Config:
             model=os.getenv("DEEPSEEK_MODEL", DEFAULT_MODEL),
             temperature=_parse_temperature(os.getenv("CODING_AGENT_TEMPERATURE")),
             read_only=os.getenv("CODING_AGENT_READ_ONLY", "0").lower() in ("1", "true", "yes"),
+            allow_dangerous_commands=os.getenv("CODING_AGENT_ALLOW_DANGEROUS", "0").lower() in ("1", "true", "yes"),
             project_root=Path(os.getenv("CODING_AGENT_ROOT", Path.cwd())),
             vision=os.getenv("CODING_AGENT_VISION", "off"),
             vision_max_side=int(os.getenv("CODING_AGENT_VISION_MAX_SIDE", str(1568))),

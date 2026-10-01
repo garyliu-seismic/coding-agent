@@ -73,6 +73,7 @@ def _invoke_config(cfg: Config) -> dict:
             "project_root": str(cfg.project_root),
             "read_only": cfg.read_only,
             "allow_shell": cfg.allow_shell,
+            "allow_dangerous_commands": cfg.allow_dangerous_commands,
             "shell_timeout": cfg.shell_timeout,
             "tool_output_limit": cfg.tool_output_limit,
             "file_read_limit": cfg.file_read_limit,

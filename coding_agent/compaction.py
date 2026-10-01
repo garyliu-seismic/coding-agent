@@ -24,6 +24,7 @@ state so tool routing is unaffected.
 from __future__ import annotations
 
 import textwrap
+from pathlib import Path
 from typing import Sequence
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, ToolMessage

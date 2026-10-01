@@ -17,6 +17,7 @@ from .finish import finish
 from .image_meta import read_image_meta
 from .image_view import view_image
 from .describe_image import describe_image
+from .diagnostics import run_diagnostics
 from .get_omitted_image import get_omitted_image
 from .shell import run_shell
 from .srdp import srdp_grep, srdp_list, srdp_read
@@ -37,6 +38,7 @@ ALL_TOOLS = [
     move_file,
     restore_file,
     run_shell,
+    run_diagnostics,
     srdp_list,
     srdp_read,
     srdp_grep,

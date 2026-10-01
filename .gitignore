@@ -9,3 +9,4 @@ dist/
 .idea/
 .vscode/
 *.log
+/compacted_images.json

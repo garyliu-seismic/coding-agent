@@ -98,6 +98,7 @@ coding-agent --root . --vision on run "描述 screenshot.png 里显示的错误"
 | `move_file` | 移动 / 重命名文件 | ✘ |
 | `restore_file` | 从 git 恢复被误删文件 | ✔ |
 | `run_shell` | 执行 Shell（Windows 用 PowerShell）| ✘ |
+| `run_diagnostics` | 静态诊断（语法 / lint / 类型 / 合并冲突） | ✔ |
 | `finish` | 标记任务完成并结束循环 | ✔ |
 
 ### SRDP / ZIP 包
@@ -188,5 +189,5 @@ coding-agent/
 ## 已知限制 / 后续方向
 
 - `gemma4:12b` 视觉模型在 RGBA / 大图上返回空响应，待排查（可能需要强制转 RGB）。
-- 没有独立执行沙箱，`run_shell` 直接在本机运行——高风险场景请配合容器使用。
-- 尚未接入 VS Code LSP/诊断，定位编译错误可让 agent 用 `run_shell` 跑构建命令。
+- **执行沙箱**：`run_shell` 目前仍在**本机**运行，但已内置**灾难级命令拦截**（`rm -rf /`、`format C:`、`shutdown`、`sudo`、`mkfs`、fork bomb、`curl | sh` 等会直接拒绝）。真正的容器隔离（Docker）尚未接入；高风险场景仍建议配合容器。拦截可用 `CODING_AGENT_ALLOW_DANGEROUS=1` 关闭。
+- **诊断**：尚未接入真正的 VS Code LSP 协议，但提供了 `run_diagnostics` 工具（Python 语法编译 + ruff/mypy 若已安装 + 合并冲突标记扫描 + `git diff --check`），用于按需定位编译/静态错误。
