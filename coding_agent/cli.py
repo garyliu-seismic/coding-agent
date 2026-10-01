@@ -87,7 +87,14 @@ def _invoke_config(cfg: Config) -> dict:
     }
 
 
-def run_agent(cfg: Config, task: str, mode: str, initial_messages: list | None = None) -> dict:
+def run_agent(
+    cfg: Config,
+    task: str,
+    mode: str,
+    initial_messages: list | None = None,
+    initial_summary: str = "",
+    initial_compacted_count: int = 0,
+) -> dict:
     """Run the agent loop and stream progress. Returns the final state."""
     graph = build_graph(cfg, build_llm(cfg))
     msgs = list(initial_messages or [])
@@ -102,6 +109,8 @@ def run_agent(cfg: Config, task: str, mode: str, initial_messages: list | None =
         "task": task,
         "finished": False,
         "final_summary": "",
+        "summary": initial_summary,
+        "compacted_count": initial_compacted_count,
     }
     seen = len(msgs)  # don't re-print history we already know about
     final = state
@@ -175,6 +184,8 @@ def cmd_chat(cfg: Config) -> int:
     # the NEW messages from the run, so we replace history with the full final
     # state each time rather than ever appending twice.
     history: list = []
+    summary: str = ""
+    compacted_count: int = 0
     while True:
         try:
             user_input = input("you> ").strip()
@@ -185,10 +196,19 @@ def cmd_chat(cfg: Config) -> int:
             continue
         if user_input.lower() in ("exit", "quit", "/exit", "/quit"):
             break
-        final = run_agent(cfg, user_input, "chat", initial_messages=history)
+        final = run_agent(
+            cfg,
+            user_input,
+            "chat",
+            initial_messages=history,
+            initial_summary=summary,
+            initial_compacted_count=compacted_count,
+        )
         # Replace history with the full message list from the completed run.
         # Do NOT append — run_agent already returns the complete accumulated state.
         history = final["messages"]
+        summary = final.get("summary", "")
+        compacted_count = final.get("compacted_count", 0)
 
 
 # ---------------------------------------------------------------------- cli --

@@ -187,16 +187,23 @@ if cfg.vision != "off":
 ## 6. 上下文管理（Compaction）
 
 ```
-count_chars(messages) > context_budget_chars (120k)?
-  Yes → compact(messages, llm_plain, total_budget, keep_recent)
-          │  1. 用无工具绑定的 LLM 生成历史摘要 SystemMessage
+count_chars(active) > context_budget_chars (120k)?
+  Yes → summarize_prefix(active, llm_plain, keep_recent)
+          │  1. 用无工具绑定的 LLM 生成历史摘要文本
           │  2. 保留最近 keep_recent_chars 字符的消息
           │  3. 保留最近 keep_recent_images 张图片，旧图替换为占位符
-          └→ 返回压缩后的 messages
+          └→ 返回 (summary_text, keep_from_index)
+          摘要文本写入 state["summary"]，索引写入 state["compacted_count"]
 ```
 
 使用 **LLM 摘要**而非简单丢弃，避免切断 AIMessage/ToolMessage 配对导致 API 报错。
 图片单独计费（`image_token_cost`，默认 2048 字符当量）以防 VRAM 溢出。
+
+**KV-cache 友好**：摘要持久化到 state，后续 LLM 请求只发送
+`[system, summary, ...active]`，且 `summary` 仅在新增消息再次超预算时才**追加**
+（此前缀不变）。这保持请求前导字节稳定，命中 provider 的 prompt cache，避免
+每次调用重新摘要（旧实现每次超预算都重新生成摘要，既浪费一次 LLM 调用又因
+摘要非确定而反复失效缓存）。
 
 ---
 

@@ -100,7 +100,14 @@ def run_shell(
     out = "\n".join(parts)
     limit = int(_cfg(config).get("tool_output_limit", 20_000))
     if len(out) > limit:
-        out = out[:limit] + f"\n...[truncated, {len(out) - limit:,} chars omitted]"
+        head = int(limit * 0.7)
+        tail = limit - head
+        omitted = len(out) - limit
+        out = (
+            out[:head]
+            + f"\n...[truncated, {omitted:,} chars omitted]...\n"
+            + out[-tail:]
+        )
     if not out:
         return f"$ {command}\n(exit code {proc.returncode}, no output)"
     return f"$ {command}\n(exit code {proc.returncode})\n{out}"

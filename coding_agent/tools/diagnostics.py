@@ -96,7 +96,7 @@ def run_diagnostics(
     config: RunnableConfig = None,
 ) -> str:
     """Run static diagnostics on the project and report issues (Python syntax errors, ruff/mypy lint & type errors, unresolved merge-conflict markers, git whitespace errors). Use this to locate compile/lint errors instead of guessing. `path` is relative to the project root (default '.' = whole project). Read-only."""
-    root = _root(config)
+    root = _root(config).resolve()
     target = (root / path).resolve()
     if not target.exists():
         return f"Error: path does not exist: {path}"

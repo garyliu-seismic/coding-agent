@@ -26,7 +26,7 @@ flowchart LR
 - **主 LLM**：`langchain-openai` 的 `ChatOpenAI`，默认指向 DeepSeek `https://api.deepseek.com/v1`，模型默认 `deepseek-chat`。改用本地 Ollama 时设 `DEEPSEEK_BASE_URL=http://localhost:11434/v1`、`DEEPSEEK_MODEL=ornith-1.5:9b`；改用 Azure AI Foundry / OpenAI 时设置 `DEEPSEEK_BASE_URL` / `DEEPSEEK_MODEL` / `DEEPSEEK_API_KEY`。
 - **视觉 LLM**：`describe_image` 工具独立调用视觉模型（默认 `gpt-5-mini` via Azure），与主 LLM 解耦，可单独配置。
 - **编排**：`StateGraph` 循环 `agent → tools → agent`，模型调用 `finish` 工具时结束。
-- **上下文管理**：按字符预算触发 LLM 摘要压缩（compact），防止超长任务把上下文撑爆，同时避免孤立 ToolMessage 问题。
+- **上下文管理**：按字符预算触发 LLM 摘要压缩（compact），摘要**持久化到 state**、只在新增消息再次超预算时增量追加——既防止超长任务把上下文撑爆，又避免孤立 ToolMessage 问题，同时保持请求前缀稳定以命中 provider 的 prompt cache（KV cache）。
 - **安全**：路径做了 project-root 越界校验；`--read-only` 会移除所有修改类工具。
 
 ## 安装

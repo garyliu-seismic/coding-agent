@@ -15,3 +15,7 @@ class AgentState(TypedDict, total=False):
     task: str
     finished: bool
     final_summary: str
+    # Persistent context compaction (prompt-cache friendly): the summary text
+    # covers the first `compacted_count` messages in `messages`.
+    summary: str
+    compacted_count: int

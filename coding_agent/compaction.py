@@ -17,18 +17,29 @@ This module replaces the trim step with an LLM-generated summary:
   3. Call the LLM once with a compact prompt to produce a plain-text summary.
   4. Return [system_msg, summary_as_SystemMessage, ...recent_messages].
 
-The caller (graph.py _agent_node) uses the returned list in place of state
-messages for the current LLM call only — the full history stays in LangGraph
-state so tool routing is unaffected.
+KV-cache note
+-------------
+``compact()`` returns a full message list (used by tests / one-shot calls).
+``summarize_prefix()`` is the incremental variant used by the agent loop: it
+returns ``(summary_text, keep_from_index)`` so the caller can PERSIST the
+summary in state.  Persisting (rather than re-summarising every turn) keeps the
+leading bytes of each LLM request stable, which is what makes provider prompt
+caching hit.
 """
 from __future__ import annotations
 
+import json
 import textwrap
 from pathlib import Path
 from typing import Sequence
 
-from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, ToolMessage
-import json
+from langchain_core.messages import (
+    AIMessage,
+    AnyMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -188,8 +199,95 @@ def _serialise(messages: list[AnyMessage]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# public API
+# internal split / summarise helpers
 # ---------------------------------------------------------------------------
+
+def _split_messages(
+    messages: list[AnyMessage],
+    keep_recent_chars: int,
+) -> tuple[list[AnyMessage], list[AnyMessage], list[AnyMessage], int]:
+    """Split ``messages`` into (system_msgs, to_summarise, to_keep, cut_abs).
+
+    ``cut_abs`` is the absolute index (into ``messages``) of the first message
+    to keep — everything before it (except leading SystemMessages) is
+    summarised.
+    """
+    system_msgs: list[AnyMessage] = []
+    body: list[AnyMessage] = []
+    in_system = True
+    for m in messages:
+        if in_system and isinstance(m, SystemMessage):
+            system_msgs.append(m)
+        else:
+            in_system = False
+            body.append(m)
+
+    cut = find_cut_index(messages, keep_recent_chars)
+    body_cut = cut - len(system_msgs)
+    if body_cut < 0:
+        body_cut = 0
+    to_summarise = body[:body_cut]
+    to_keep = body[body_cut:]
+    return system_msgs, to_summarise, to_keep, cut
+
+
+def _replace_old_images(to_keep: list[AnyMessage], keep_recent_images: int) -> list[AnyMessage]:
+    """Replace old inline-image ToolMessages with placeholders, keeping only the
+    most recent ``keep_recent_images`` to avoid re-sending large base64 blobs.
+
+    Returns a new list (the caller's list is mutated in place as well).
+    """
+    image_positions: list[int] = []
+    for i, m in enumerate(to_keep):
+        if isinstance(m, ToolMessage) and isinstance(m.content, str):
+            try:
+                j = json.loads(m.content)
+                if isinstance(j, dict) and j.get("type") == "image_url":
+                    image_positions.append(i)
+            except Exception:
+                continue
+
+    if not image_positions:
+        return to_keep
+
+    keep_last = set(image_positions[-keep_recent_images:])
+    index_path = Path(__file__).parent / ".." / "compacted_images.json"
+    try:
+        index_path = index_path.resolve()
+    except Exception:
+        index_path = Path("compacted_images.json")
+
+    try:
+        stored = json.loads(index_path.read_text(encoding="utf-8")) if index_path.is_file() else {}
+    except Exception:
+        stored = {}
+
+    for idx in image_positions:
+        if idx in keep_last:
+            continue
+        m = to_keep[idx]
+        meta = {"alt": None, "width": None, "height": None}
+        try:
+            j = json.loads(m.content) if isinstance(m.content, str) else (m.content or {})
+            if isinstance(j, dict):
+                meta["alt"] = j.get("alt")
+                meta["width"] = j.get("width")
+                meta["height"] = j.get("height")
+        except Exception:
+            pass
+        alt = meta.get("alt") or getattr(m, "name", "image")
+        placeholder_text = f"[image omitted: {alt}] (image removed to reduce token usage)"
+        to_keep[idx] = SystemMessage(placeholder_text)
+        key = f"omitted_{len(stored)+1}"
+        stored[key] = {"placeholder": placeholder_text, "meta": meta}
+
+    try:
+        index_path.write_text(json.dumps(stored, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+    return to_keep
+
 
 _SUMMARY_PROMPT = textwrap.dedent("""\
     You are summarising a coding-agent conversation for context compression.
@@ -210,6 +308,51 @@ _SUMMARY_PROMPT = textwrap.dedent("""\
     CONVERSATION:
     {transcript}
 """)
+
+
+def _generate_summary(to_summarise: list[AnyMessage], llm) -> str:
+    """Call the LLM once to summarise ``to_summarise``; fall back gracefully."""
+    transcript = _serialise(to_summarise)
+    prompt = _SUMMARY_PROMPT.format(transcript=transcript)
+    try:
+        response = llm.invoke([HumanMessage(content=prompt)])
+        return response.content if isinstance(response.content, str) else str(response.content)
+    except Exception as exc:  # noqa: BLE001
+        return (
+            f"[Compaction failed: {exc}] "
+            f"Earlier conversation ({len(to_summarise)} messages) was summarised "
+            "but the summary could not be generated. Continuing from recent context."
+        )
+
+
+# ---------------------------------------------------------------------------
+# public API
+# ---------------------------------------------------------------------------
+
+def summarize_prefix(
+    messages: list[AnyMessage],
+    llm,
+    keep_recent_chars: int,
+    image_token_cost: int = 2048,
+    keep_recent_images: int = 5,
+) -> tuple[str, int]:
+    """Summarise the old prefix of ``messages``.
+
+    Returns ``(summary_text, keep_from_index)`` where ``keep_from_index`` is the
+    absolute index of the first message NOT covered by the summary.  When there
+    is nothing to summarise, returns ``("", 0)``.
+
+    This is the incremental variant used by the agent loop: the caller persists
+    ``summary_text`` in state so the leading bytes of subsequent requests stay
+    stable (prompt-cache friendly), instead of re-summarising every turn.
+    """
+    _, to_summarise, to_keep, cut = _split_messages(messages, keep_recent_chars)
+    if not to_summarise:
+        return "", 0
+
+    _replace_old_images(to_keep, keep_recent_images)
+    summary_text = _generate_summary(to_summarise, llm)
+    return summary_text, cut
 
 
 def compact(
@@ -234,106 +377,17 @@ def compact(
         total_budget_chars: Trigger threshold; no compaction if below this.
         keep_recent_chars: How many recent chars to preserve un-summarised.
     """
-    # Use count_chars which treats image ToolMessages specially
     if count_chars(messages, image_token_cost=image_token_cost) <= total_budget_chars:
         return messages
 
-    # Separate leading system messages from the rest
-    system_msgs: list[AnyMessage] = []
-    body: list[AnyMessage] = []
-    in_system = True
-    for m in messages:
-        if in_system and isinstance(m, SystemMessage):
-            system_msgs.append(m)
-        else:
-            in_system = False
-            body.append(m)
-
-    cut = find_cut_index(messages, keep_recent_chars)
-    # Convert absolute index to body index
-    body_cut = cut - len(system_msgs)
-
-    to_summarise = body[:body_cut]
-    to_keep = body[body_cut:]
-
+    system_msgs, to_summarise, to_keep, _ = _split_messages(messages, keep_recent_chars)
     if not to_summarise:
-        # Nothing safe to summarise — return as-is to avoid API errors
         return messages
 
-    # Replace old images in the kept tail with placeholders, preserving only
-    # the most recent `keep_recent_images` images to avoid re-sending large
-    # base64 blobs to the LLM repeatedly.
-    image_positions: list[int] = []
-    for i, m in enumerate(to_keep):
-        if isinstance(m, ToolMessage) and isinstance(m.content, str):
-            try:
-                j = json.loads(m.content)
-                if isinstance(j, dict) and j.get("type") == "image_url":
-                    image_positions.append(i)
-            except Exception:
-                continue
-    # Keep only the last N image positions
-    keep_last = set(image_positions[-keep_recent_images:])
-    # When replacing old images with placeholders, also persist a small index
-    # mapping placeholder -> metadata so they can be retrieved later if needed.
-    index_path = Path(__file__).parent / ".." / "compacted_images.json"
-    try:
-        index_path = index_path.resolve()
-    except Exception:
-        index_path = Path("compacted_images.json")
-
-    try:
-        import json as _json
-        if index_path.is_file():
-            stored = _json.loads(index_path.read_text(encoding="utf-8"))
-        else:
-            stored = {}
-    except Exception:
-        stored = {}
-
-    for idx in image_positions:
-        if idx not in keep_last:
-            m = to_keep[idx]
-            # extract metadata
-            meta = {"alt": None, "width": None, "height": None}
-            try:
-                j = json.loads(m.content) if isinstance(m.content, str) else (m.content or {})
-                if isinstance(j, dict):
-                    meta["alt"] = j.get("alt")
-                    meta["width"] = j.get("width")
-                    meta["height"] = j.get("height")
-            except Exception:
-                pass
-            alt = meta.get("alt") or getattr(m, "name", "image")
-            placeholder_text = f"[image omitted: {alt}] (image removed to reduce token usage)"
-            placeholder = SystemMessage(placeholder_text)
-            to_keep[idx] = placeholder
-            # store metadata under a short key (index in original messages + cut offset)
-            key = f"omitted_{len(stored)+1}"
-            stored[key] = {"placeholder": placeholder_text, "meta": meta}
-
-    try:
-        index_path.write_text(_json.dumps(stored, indent=2), encoding="utf-8")
-    except Exception:
-        pass
-
-    transcript = _serialise(to_summarise)
-    prompt = _SUMMARY_PROMPT.format(transcript=transcript)
-
-    try:
-        response = llm.invoke([HumanMessage(content=prompt)])
-        summary_text = response.content if isinstance(response.content, str) else str(response.content)
-    except Exception as exc:  # noqa: BLE001
-        # If the summary LLM call fails, fall back to a simple header so the
-        # agent can still continue rather than crashing.
-        summary_text = (
-            f"[Compaction failed: {exc}] "
-            f"Earlier conversation ({len(to_summarise)} messages) was summarised "
-            "but the summary could not be generated. Continuing from recent context."
-        )
+    _replace_old_images(to_keep, keep_recent_images)
+    summary_text = _generate_summary(to_summarise, llm)
 
     summary_msg = SystemMessage(
         content=f"[CONTEXT SUMMARY — earlier conversation compressed]\n\n{summary_text}"
     )
-
     return [*system_msgs, summary_msg, *to_keep]

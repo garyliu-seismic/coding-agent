@@ -50,12 +50,16 @@ def _root(config: RunnableConfig) -> Path:
 
 def _cap(text: str, limit_key: str, config: RunnableConfig) -> str:
     limit = int(_cfg(config).get(limit_key, 60_000))
-    if len(text) > limit:
-        return (
-            text[:limit]
-            + f"\n...[truncated {len(text) - limit:,} chars; read in line ranges]"
-        )
-    return text
+    if len(text) <= limit:
+        return text
+    head = int(limit * 0.7)
+    tail = limit - head
+    omitted = len(text) - limit
+    return (
+        text[:head]
+        + f"\n...[truncated {omitted:,} chars; read middle in line ranges]...\n"
+        + text[-tail:]
+    )
 
 
 def _within(root: Path, p: Path) -> bool:

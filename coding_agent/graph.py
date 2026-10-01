@@ -34,7 +34,7 @@ from langchain_core.messages import AIMessage, AnyMessage, SystemMessage, ToolMe
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
-from .compaction import compact, count_chars
+from .compaction import count_chars, summarize_prefix
 from .config import Config
 from .llm import build_llm
 from .state import AgentState
@@ -131,22 +131,56 @@ def _agent_node(cfg: Config, llm_plain, model_full, model_no_explore, model_only
 
     def agent(state: AgentState):
         messages = list(state["messages"])
+        summary = state.get("summary", "")
+        compacted_count = state.get("compacted_count", 0)
         if run_start["t"] is None or not any(isinstance(m, AIMessage) for m in messages):
             run_start["t"] = time.monotonic()
         elapsed = time.monotonic() - run_start["t"]
 
-        # --- Compaction (replaces trim_messages) ---
-        # Uses a plain LLM (no tools bound) for the summary call so the
-        # summary prompt is not accidentally interpreted as a tool invocation.
-        if count_chars(messages, image_token_cost=cfg.vision_image_token_cost) > cfg.context_budget_chars:
-            messages = compact(
-                messages,
+        # --- Stable-prefix context assembly (prompt-cache friendly) ---
+        # Leading SystemMessages are the system prompt.  Messages up to
+        # `compacted_count` have already been summarised into `summary`, so we
+        # only send [system, summary, ...active] to the LLM.
+        system_msgs: list[AnyMessage] = []
+        i = 0
+        while i < len(messages) and isinstance(messages[i], SystemMessage):
+            system_msgs.append(messages[i])
+            i += 1
+
+        active = messages[compacted_count:] if compacted_count else messages
+
+        def _assemble(summary_text: str, active_msgs: list[AnyMessage]) -> list[AnyMessage]:
+            out = list(system_msgs)
+            if summary_text:
+                out.append(
+                    SystemMessage(
+                        f"[CONTEXT SUMMARY — earlier conversation compressed]\n\n{summary_text}"
+                    )
+                )
+            out.extend(active_msgs)
+            return out
+
+        llm_messages = _assemble(summary, active)
+
+        # --- Incremental compaction ---
+        # Summarise the old prefix of `active` only when it grows past the
+        # budget.  The summary is persisted in state (returned below), so the
+        # next turn reuses it — keeping the leading bytes stable for KV cache.
+        new_summary = summary
+        new_count = compacted_count
+        if count_chars(active, image_token_cost=cfg.vision_image_token_cost) > cfg.context_budget_chars:
+            summary_text, cut_abs = summarize_prefix(
+                active,
                 llm=llm_plain,
-                total_budget_chars=cfg.context_budget_chars,
                 keep_recent_chars=cfg.keep_recent_chars,
                 image_token_cost=cfg.vision_image_token_cost,
                 keep_recent_images=cfg.vision_keep_recent,
             )
+            if summary_text and cut_abs > 0:
+                new_summary = (summary + "\n\n" if summary else "") + summary_text
+                new_count = compacted_count + cut_abs
+                active = active[cut_abs:]
+                llm_messages = _assemble(new_summary, active)
 
         # --- Wind-down: detect STALL, not total call count ---
         # Only force wind-down when the agent has been stuck (no write/edit/
@@ -159,8 +193,8 @@ def _agent_node(cfg: Config, llm_plain, model_full, model_no_explore, model_only
 
         if elapsed > cfg.run_timeout_sec:
             model = model_only_finish
-            messages = [
-                *messages,
+            llm_messages = [
+                *llm_messages,
                 SystemMessage(
                     f"[time budget] {int(elapsed)}s elapsed (limit {cfg.run_timeout_sec}s). "
                     "Stop now and call `finish` with your findings so far, and state what is unverified. Only `finish` is available."
@@ -168,8 +202,8 @@ def _agent_node(cfg: Config, llm_plain, model_full, model_no_explore, model_only
             ]
         elif warning:
             model = model_no_explore
-            messages = [
-                *messages,
+            llm_messages = [
+                *llm_messages,
                 SystemMessage(
                     warning
                     + " The exploration tools (list_directory, file_search, "
@@ -179,8 +213,8 @@ def _agent_node(cfg: Config, llm_plain, model_full, model_no_explore, model_only
             ]
         elif stall >= wind_down_stall_threshold:
             model = model_only_finish
-            messages = [
-                *messages,
+            llm_messages = [
+                *llm_messages,
                 SystemMessage(
                     f"[wind-down] You have made {stall} consecutive tool calls with no "
                     "file writes, edits, or shell commands — this looks like a stall. "
@@ -194,8 +228,8 @@ def _agent_node(cfg: Config, llm_plain, model_full, model_no_explore, model_only
         # If vision is enabled, instruct the model about tool failure semantics so it
         # does not treat other tools' error strings as image understanding.
         if cfg.vision != "off":
-            messages = [
-                *messages,
+            llm_messages = [
+                *llm_messages,
                 SystemMessage(
                     """STRICT INSTRUCTIONS FOR VISION TASKS:
 1) When you call view_image, STOP. Do NOT call any other tools in the same response.
@@ -211,7 +245,11 @@ Failure to follow these rules will be treated as incorrect. Use only the injecte
                 ),
             ]
 
-        return {"messages": [model.invoke(messages)]}
+        result = {"messages": [model.invoke(llm_messages)]}
+        if new_summary != summary or new_count != compacted_count:
+            result["summary"] = new_summary
+            result["compacted_count"] = new_count
+        return result
 
     return agent
 
