@@ -1,9 +1,10 @@
 """LLM factory.
 
 DeepSeek is OpenAI-compatible, so we reuse langchain-openai's ``ChatOpenAI``.
-The default endpoint is a local Ollama server (`http://localhost:11434/v1`,
-no API key required). To use a remote OpenAI-compatible endpoint (e.g. DeepSeek),
-set ``DEEPSEEK_BASE_URL``/``DEEPSEEK_MODEL`` (or ``OPENAI_API_KEY``) in the env.
+The default endpoint is DeepSeek (`https://api.deepseek.com/v1`). To use a local
+Ollama server instead, set ``DEEPSEEK_BASE_URL`` to `http://localhost:11434/v1`
+(no API key required); to use another OpenAI-compatible endpoint, set
+``DEEPSEEK_BASE_URL``/``DEEPSEEK_MODEL`` (or ``OPENAI_API_KEY``) in the env.
 """
 from __future__ import annotations
 
@@ -11,13 +12,13 @@ from urllib.parse import urlparse
 
 from langchain_openai import ChatOpenAI
 
-from .config import Config, DEFAULT_BASE_URL
+from .config import Config
 
 
 def build_llm(cfg: Config) -> ChatOpenAI:
     """Build a ``ChatOpenAI`` client pointing at the configured endpoint."""
     api_key = cfg.api_key
-    if same_host(cfg.base_url, DEFAULT_BASE_URL):
+    if is_local_ollama(cfg.base_url):
         # Local Ollama needs no real auth; openai client still requires a
         # non-empty string, so use a placeholder.
         api_key = api_key or "ollama"
@@ -34,17 +35,15 @@ def build_llm(cfg: Config) -> ChatOpenAI:
     )
 
 
-def same_host(url: str, ref: str) -> bool:
-    """Compare host/port of two URLs, ignoring the scheme.
+def is_local_ollama(url: str) -> bool:
+    """True when ``url`` points at a local Ollama server (loopback host).
 
-    So ``HTTP://localhost:11434/V1`` matches ``http://localhost:11434/v1``.
+    Loopback hosts (localhost / 127.0.0.1 / ::1) need no API key; the OpenAI
+    client still requires a non-empty key, so callers use a placeholder.
     """
-    def _host(u: str) -> str:
-        p = urlparse(u)
-        return p._replace(scheme="").netloc
-
     try:
-        return _host(url) == _host(ref)
+        host = (urlparse(url).hostname or "").lower()
     except ValueError:
-        # Malformed URL — fall back to a case-insensitive full comparison.
-        return str(url).lower() == str(ref).lower()
+        # Malformed URL — not a loopback host.
+        return False
+    return host in ("localhost", "127.0.0.1", "0.0.0.0", "::1")

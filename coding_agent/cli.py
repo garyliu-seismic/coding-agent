@@ -199,7 +199,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"coding-agent {__version__}")
     parser.add_argument("--root", default=None, help="project root to operate on (default: cwd)")
     parser.add_argument(
-        "--model", default=None, help="model id (default: ornith-1.5:9b via local Ollama)"
+        "--model", default=None, help="model id (default: deepseek-chat)"
     )
     parser.add_argument(
         "--api-key", default=None, help="key for the OpenAI-compatible endpoint (local Ollama: no key needed)"
@@ -231,15 +231,15 @@ def main(argv: list[str] | None = None) -> int:
         max_iterations=args.iterations,
     )
 
-    from .config import DEFAULT_BASE_URL
-    from .llm import same_host
-    if not cfg.api_key and not same_host(cfg.base_url, DEFAULT_BASE_URL):
+    from .llm import is_local_ollama
+    if not cfg.api_key and not is_local_ollama(cfg.base_url):
         console.print(
             "[red]No API key configured.[/red]\n"
-            "Running local Ollama needs no API key; if using a remote endpoint, set "
-            "DEEPSEEK_API_KEY (or OPENAI_API_KEY) and DEEPSEEK_BASE_URL in the "
+            "Set DEEPSEEK_API_KEY (or OPENAI_API_KEY) and DEEPSEEK_BASE_URL in the "
             "environment, or create a .env file:\n"
             "  DEEPSEEK_API_KEY=sk-...\n"
+            "  DEEPSEEK_BASE_URL=https://api.deepseek.com/v1\n"
+            "  DEEPSEEK_MODEL=deepseek-chat\n"
             f"Model: {cfg.model} @ {cfg.base_url}"
         )
         return 2

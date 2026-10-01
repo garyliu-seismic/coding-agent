@@ -7,8 +7,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-DEFAULT_BASE_URL = "http://localhost:11434/v1"
-DEFAULT_MODEL = "ornith-1.5:9b"
+DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
+DEFAULT_MODEL = "deepseek-chat"
 
 # Default vision model (separate from the agent's main LLM).
 # Uses the OpenAI Chat Completions format so it works with both

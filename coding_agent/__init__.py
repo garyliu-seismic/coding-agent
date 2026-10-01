@@ -1,8 +1,8 @@
 """coding-agent: a CLI coding agent built on LangGraph.
 
-Default model: local Ollama (http://localhost:11434/v1, OpenAI-compatible),
-no API key required. Falls back to an OpenAI-compatible endpoint (e.g. DeepSeek)
-when DEEPSEEK_API_KEY + DEEPSEEK_BASE_URL are set.
+Default model: DeepSeek (https://api.deepseek.com/v1, OpenAI-compatible).
+To use a local Ollama server instead, set DEEPSEEK_BASE_URL to
+http://localhost:11434/v1 (no API key required).
 
 Modes:
 - analyze : read a project and produce an architecture report

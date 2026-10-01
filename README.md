@@ -1,6 +1,6 @@
 # coding-agent
 
-一个基于 **LangGraph + Ollama / Azure AI Foundry（OpenAI 兼容接口）** 的独立 CLI coding agent（Python）。
+一个基于 **LangGraph + DeepSeek（OpenAI 兼容接口）** 的独立 CLI coding agent（Python）。
 
 它能：
 - **阅读工程**：列出目录树、读取文件、grep / glob 搜索，真正读懂代码而不是靠猜。
@@ -19,11 +19,11 @@ flowchart LR
     T -->|其他| A
     A -->|无 tool_calls| F
     T --> TOOLS[工具层\nfilesystem / shell / image / finish]
-    G --> LLM[llm.py\nChatOpenAI → Ollama / Azure]
+    G --> LLM[llm.py\nChatOpenAI → DeepSeek / Ollama / Azure]
     TOOLS --> VIS[视觉后端\ngpt-5-mini / qwen3.8 / gemma4]
 ```
 
-- **主 LLM**：`langchain-openai` 的 `ChatOpenAI`，默认指向本地 Ollama `http://localhost:11434/v1`，模型默认 `ornith-1.5:9b`。改用 Azure AI Foundry / OpenAI 时设置 `DEEPSEEK_BASE_URL` / `DEEPSEEK_MODEL` / `DEEPSEEK_API_KEY`。
+- **主 LLM**：`langchain-openai` 的 `ChatOpenAI`，默认指向 DeepSeek `https://api.deepseek.com/v1`，模型默认 `deepseek-chat`。改用本地 Ollama 时设 `DEEPSEEK_BASE_URL=http://localhost:11434/v1`、`DEEPSEEK_MODEL=ornith-1.5:9b`；改用 Azure AI Foundry / OpenAI 时设置 `DEEPSEEK_BASE_URL` / `DEEPSEEK_MODEL` / `DEEPSEEK_API_KEY`。
 - **视觉 LLM**：`describe_image` 工具独立调用视觉模型（默认 `gpt-5-mini` via Azure），与主 LLM 解耦，可单独配置。
 - **编排**：`StateGraph` 循环 `agent → tools → agent`，模型调用 `finish` 工具时结束。
 - **上下文管理**：按字符预算触发 LLM 摘要压缩（compact），防止超长任务把上下文撑爆，同时避免孤立 ToolMessage 问题。
@@ -76,7 +76,7 @@ coding-agent --root . --vision on run "描述 screenshot.png 里显示的错误"
 | 参数 | 说明 |
 |------|------|
 | `--root PATH` | 目标工程根目录（默认当前目录） |
-| `--model ID` | 主模型 id（默认 `ornith-1.5:9b`） |
+| `--model ID` | 主模型 id（默认 `deepseek-chat`） |
 | `--api-key KEY` | 覆盖 API key（本地 Ollama 留空） |
 | `--read-only` | 只读：禁用写文件 / Shell |
 | `--iterations N` | agent 最大循环步数（默认 200） |
@@ -163,7 +163,7 @@ coding-agent/
     ├── config.py       # 配置（环境变量 + CLI 覆盖）
     ├── state.py        # LangGraph 状态类型
     ├── prompts.py      # 各模式的系统提示词
-    ├── llm.py          # ChatOpenAI 工厂（Ollama / Azure）
+    ├── llm.py          # ChatOpenAI 工厂（DeepSeek / Ollama / Azure）
     ├── graph.py        # StateGraph 编排 + 视觉后处理
     ├── compaction.py   # 上下文压缩（LLM 摘要）
     └── tools/
