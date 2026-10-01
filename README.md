@@ -69,6 +69,9 @@ coding-agent --root . --read-only analyze
 
 # 启用图片识别（需要视觉模型支持）
 coding-agent --root . --vision on run "描述 screenshot.png 里显示的错误"
+
+# 无 DeepSeek 时，用 gpt-5-mini（Azure Foundry）作为主 LLM
+coding-agent --root . --gpt5-mini run "给 utils.py 加一个单元测试"
 ```
 
 ### 常用参数
@@ -79,6 +82,7 @@ coding-agent --root . --vision on run "描述 screenshot.png 里显示的错误"
 | `--model ID` | 主模型 id（默认 `deepseek-chat`） |
 | `--api-key KEY` | 覆盖 API key（本地 Ollama 留空） |
 | `--read-only` | 只读：禁用写文件 / Shell |
+| `--gpt5-mini` | 用 gpt-5-mini（Azure Foundry）作为主 LLM，替代 DeepSeek；需在 `.env` 配好 `CODING_AGENT_VISION_MODEL_URL` / `_NAME` / `_API_KEY` |
 | `--iterations N` | agent 最大循环步数（默认 200） |
 | `--vision on/off/auto` | 开启图片识别工具（默认 off） |
 

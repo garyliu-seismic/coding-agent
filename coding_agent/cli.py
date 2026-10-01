@@ -206,6 +206,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--api-key", default=None, help="key for the OpenAI-compatible endpoint (local Ollama: no key needed)"
     )
     parser.add_argument("--read-only", action="store_true", help="read-only: no edits, no shell")
+    parser.add_argument(
+        "--gpt5-mini", action="store_true",
+        help="use gpt-5-mini (Azure Foundry) as the main LLM instead of DeepSeek",
+    )
     parser.add_argument("--iterations", type=int, default=None, help="max agent loop steps")
 
     sub = parser.add_subparsers(dest="command", required=True)
@@ -231,6 +235,13 @@ def main(argv: list[str] | None = None) -> int:
         read_only=args.read_only if args.read_only else None,
         max_iterations=args.iterations,
     )
+
+    if args.gpt5_mini:
+        try:
+            cfg.apply_gpt5_mini()
+        except ValueError as exc:
+            console.print(f"[red]{exc}[/red]")
+            return 2
 
     from .llm import is_local_ollama
     if not cfg.api_key and not is_local_ollama(cfg.base_url):

@@ -123,3 +123,24 @@ class Config:
             raise PermissionError(
                 "This action is disabled: the agent is running in read-only mode."
             )
+
+    def apply_gpt5_mini(self) -> "Config":
+        """Switch the main LLM to gpt-5-mini (Azure Foundry), reusing vision config.
+
+        The gpt-5-mini deployment lives on the same Azure endpoint / key as the
+        ``describe_image`` vision backend, so we reuse
+        ``CODING_AGENT_VISION_MODEL_URL`` / ``_NAME`` / ``_API_KEY``.
+
+        gpt-5-* models reject ``temperature=0``, so temperature is omitted.
+        """
+        if not self.vision_model_url:
+            raise ValueError(
+                "gpt-5-mini as the main LLM requires "
+                "CODING_AGENT_VISION_MODEL_URL (Azure Foundry OpenAI-compatible "
+                "endpoint) to be set in .env"
+            )
+        self.base_url = self.vision_model_url
+        self.model = self.vision_model_name or DEFAULT_VISION_MODEL_NAME
+        self.api_key = self.vision_model_api_key
+        self.temperature = None  # gpt-5 family rejects temperature=0
+        return self
