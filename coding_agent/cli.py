@@ -76,6 +76,12 @@ def _invoke_config(cfg: Config) -> dict:
             "shell_timeout": cfg.shell_timeout,
             "tool_output_limit": cfg.tool_output_limit,
             "file_read_limit": cfg.file_read_limit,
+            # Vision / describe_image backend
+            "vision_model_url": cfg.vision_model_url,
+            "vision_model_name": cfg.vision_model_name,
+            "vision_model_api_key": cfg.vision_model_api_key,
+            "vision_timeout": cfg.vision_timeout,
+            "vision_max_retries": cfg.vision_max_retries,
         },
     }
 

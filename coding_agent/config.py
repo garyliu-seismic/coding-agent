@@ -10,6 +10,13 @@ from dotenv import load_dotenv
 DEFAULT_BASE_URL = "http://localhost:11434/v1"
 DEFAULT_MODEL = "ornith-1.5:9b"
 
+# Default vision model (separate from the agent's main LLM).
+# Uses the OpenAI Chat Completions format so it works with both
+# local Ollama vision models and cloud endpoints (Azure AI Foundry, OpenAI).
+# Override via CODING_AGENT_VISION_MODEL_URL / CODING_AGENT_VISION_MODEL_NAME.
+DEFAULT_VISION_MODEL_URL = ""          # empty = fall back to DEEPSEEK_BASE_URL
+DEFAULT_VISION_MODEL_NAME = "gpt-5-mini"
+
 # Directories that should never be indexed / listed by the exploration tools.
 IGNORED_DIRS = {
     ".git", ".hg", ".svn", "node_modules", ".venv", "venv", "__pycache__",
@@ -52,6 +59,12 @@ class Config:
     vision_max_image_bytes: int = 256 * 1024
     vision_keep_recent: int = 5
     vision_image_token_cost: int = 2048
+    # describe_image backend (separate from agent LLM; defaults to gpt-5-mini)
+    vision_model_url: str = ""               # empty = inherit DEEPSEEK_BASE_URL
+    vision_model_name: str = DEFAULT_VISION_MODEL_NAME
+    vision_model_api_key: str = ""           # empty = inherit DEEPSEEK_API_KEY
+    vision_timeout: int = 60
+    vision_max_retries: int = 3
 
     read_only: bool = False           # when True: no edits, no shell
     allow_shell: bool = True
@@ -81,6 +94,11 @@ class Config:
             vision_max_image_bytes=int(os.getenv("CODING_AGENT_VISION_MAX_IMAGE_BYTES", str(256 * 1024))),
             vision_keep_recent=int(os.getenv("CODING_AGENT_VISION_KEEP_RECENT", str(5))),
             vision_image_token_cost=int(os.getenv("CODING_AGENT_VISION_IMAGE_TOKEN_COST", str(2048))),
+            vision_model_url=os.getenv("CODING_AGENT_VISION_MODEL_URL", ""),
+            vision_model_name=os.getenv("CODING_AGENT_VISION_MODEL_NAME", DEFAULT_VISION_MODEL_NAME),
+            vision_model_api_key=os.getenv("CODING_AGENT_VISION_API_KEY", ""),
+            vision_timeout=int(os.getenv("CODING_AGENT_VISION_TIMEOUT", "60")),
+            vision_max_retries=int(os.getenv("CODING_AGENT_VISION_MAX_RETRIES", "3")),
         )
         for key, value in overrides.items():
             if value is None or not hasattr(cfg, key):
