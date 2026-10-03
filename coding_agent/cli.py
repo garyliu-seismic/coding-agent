@@ -9,8 +9,10 @@ Usage examples::
 from __future__ import annotations
 
 import argparse
+import logging
 import re
 import sys
+import time
 from pathlib import Path
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -27,6 +29,49 @@ from .prompts import ANALYZE_TASK, build_system_prompt
 
 console = Console()
 
+# ------------------------------------------------------------------ logging --
+_session_log: logging.Logger | None = None
+
+
+def _setup_logging(project_root: Path) -> logging.Logger:
+    """Set up a per-session log file under <project_root>/logs/ (or coding-agent/logs/).
+
+    Records:
+    - Every tool call (name + truncated args)
+    - Every tool result (truncated)
+    - LLM token usage (input/output/total) after each LLM turn
+    - HTTP 429 / retry warnings from the openai SDK
+    - WARNING+ messages from langchain / httpx
+
+    The log file name embeds a Unix timestamp so back-to-back sessions never collide.
+    """
+    # Write logs next to the coding-agent package, not inside the target project.
+    log_dir = Path(__file__).parent.parent / "logs"
+    log_dir.mkdir(exist_ok=True)
+    ts = int(time.time())
+    log_path = log_dir / f"session_{ts}.log"
+
+    fmt = logging.Formatter("%(asctime)s %(levelname)-8s %(name)s: %(message)s")
+
+    fh = logging.FileHandler(log_path, encoding="utf-8")
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(fmt)
+
+    logger = logging.getLogger("coding_agent")
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(fh)
+
+    # Also capture 429/retry noise from the openai SDK and httpx at WARNING+
+    for lib in ("openai", "httpx", "langchain", "langgraph"):
+        lib_logger = logging.getLogger(lib)
+        if not any(isinstance(h, logging.FileHandler) for h in lib_logger.handlers):
+            lib_logger.addHandler(fh)
+        lib_logger.setLevel(logging.WARNING)
+
+    logger.info("Session started | project=%s | log=%s", project_root, log_path)
+    console.print(f"[dim]Session log: {log_path}[/dim]")
+    return logger
+
 
 # ------------------------------------------------------------------ helpers --
 def _compact_args(args: dict, limit: int = 200) -> str:
@@ -41,6 +86,7 @@ def _compact_args(args: dict, limit: int = 200) -> str:
 
 
 def _print_message(m) -> None:
+    log = logging.getLogger("coding_agent.messages")
     if isinstance(m, SystemMessage):
         return
     if isinstance(m, HumanMessage):
@@ -48,11 +94,20 @@ def _print_message(m) -> None:
     if isinstance(m, AIMessage):
         if m.content:
             console.print(Markdown(str(m.content)))
+            log.info("AI: %s", str(m.content)[:500])
         for tc in m.tool_calls or []:
             console.print(
                 f"[bold cyan]⚙ {tc.get('name')}([/bold cyan]"
                 f"[cyan]{_compact_args(tc.get('args') or {})}[/cyan]"
                 f"[bold cyan])[/bold cyan]"
+            )
+            log.info("TOOL_CALL: %s(%s)", tc.get('name'), _compact_args(tc.get('args') or {}))
+        # log token usage if present
+        um = getattr(m, "usage_metadata", None)
+        if um:
+            log.info(
+                "USAGE: input=%s output=%s total=%s",
+                um.get("input_tokens"), um.get("output_tokens"), um.get("total_tokens"),
             )
     elif isinstance(m, ToolMessage):
         content = str(m.content)
@@ -64,6 +119,7 @@ def _print_message(m) -> None:
                 expand=False,
             )
         )
+        log.info("TOOL_RESULT: %s -> %s", getattr(m, 'name', '?'), content[:300])
 
 
 def _invoke_config(cfg: Config) -> dict:
@@ -262,6 +318,14 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             console.print(f"[red]{exc}[/red]")
             return 2
+
+    # Set up session log file (must come after cfg is fully built)
+    global _session_log
+    _session_log = _setup_logging(cfg.project_root)
+    _session_log.info(
+        "Command: %s | model=%s | root=%s | read_only=%s",
+        args.command, cfg.model, cfg.project_root, cfg.read_only,
+    )
 
     from .llm import is_local_ollama
     if not cfg.api_key and not is_local_ollama(cfg.base_url):
