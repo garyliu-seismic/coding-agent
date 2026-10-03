@@ -218,9 +218,17 @@ def cmd_analyze(cfg: Config, args) -> int:
     return 0
 
 
-def cmd_run(cfg: Config, task: str) -> int:
+def cmd_run(cfg: Config, task: str, output: str | None = None) -> int:
     console.print(f"[bold]Running task:[/bold] {task}")
-    run_agent(cfg, task, "run")
+    final = run_agent(cfg, task, "run")
+    if output:
+        report = _extract_analysis(final)
+        out = Path(output)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(report, encoding="utf-8")
+        console.print(f"\n[green]\u2714 Output written to {out}[/green]")
+        if _session_log:
+            _session_log.info("run output written to %s (%d chars)", out, len(report))
     return 0
 
 
@@ -295,6 +303,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_run = sub.add_parser("run", help="execute a one-shot task (may modify code)")
     p_run.add_argument("task", nargs="+", help="the task description")
+    p_run.add_argument(
+        "--output", default=None, metavar="FILE",
+        help="write the final agent output to FILE (UTF-8 markdown); useful for subagent calls to avoid terminal truncation",
+    )
 
     sub.add_parser("chat", help="start an interactive session")
 
@@ -348,7 +360,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "analyze":
             return cmd_analyze(cfg, args)
         if args.command == "run":
-            return cmd_run(cfg, " ".join(args.task))
+            return cmd_run(cfg, " ".join(args.task), output=getattr(args, "output", None))
         if args.command == "chat":
             return cmd_chat(cfg)
     except KeyboardInterrupt:
